@@ -1,0 +1,21 @@
+[project]
+name = "cds-dashboard"
+version = "0.1.0"
+description = "Educator dashboard to manage stories"
+readme = "README.md"
+authors = [
+    { name = "CosmicDS Developers", email = "pudomprasert@cfa.harvard.edu" }
+]
+license = "MIT"
+requires-python = ">=3.13"
+dependencies = [
+    "solara>=1.44.1",
+    "solara-enterprise>=1.44.1",
+]
+
+[project.scripts]
+cds-dashboard = "cds_dashboard:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

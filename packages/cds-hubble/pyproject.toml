@@ -1,0 +1,35 @@
+[project]
+name = "cds-hubble"
+version = "0.1.0"
+description = "Hubble's law data story"
+readme = "README.md"
+authors = [
+    { name = "CosmicDS Developers", email = "pudomprasert@cfa.harvard.edu" }
+]
+license = "MIT"
+requires-python = ">=3.13"
+dependencies = [
+    "astropy>=7.0.1",
+    "authlib>=1.5.2",
+    "cds-core",
+    "glue-core>=1.22.0",
+    "glue-jupyter>=0.23.1",
+    "glue-plotly[jupyter]>=0.12.2",
+    "ipywidgets>=8.1.5",
+    "ipywwt",
+    "itsdangerous>=2.2.0",
+    "pandas>=2.2.3",
+    "plotly>=5.24.1",
+    "pydantic>=2.11.2",
+    "solara>=1.44.1",
+    "solara-enterprise>=1.44.1",
+    "traitlets>=5.14.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+ipywwt = { git = "https://github.com/cosmicds/ipywwt.git", rev = "simple" }
+cds-core = { workspace = true }

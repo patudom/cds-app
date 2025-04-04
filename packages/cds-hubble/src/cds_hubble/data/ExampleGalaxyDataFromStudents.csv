@@ -1,0 +1,41 @@
+student_id,galaxy_id,rest_wave_value,rest_wave_unit,obs_wave_value,obs_wave_unit,velocity_value,velocity_unit,ang_size_value,ang_size_unit,est_dist_value,est_dist_unit,last_modified,measurement_number,brightness,class_id
+3977,1576,6565,angstrom,6167,angstrom,-18187,km / s,37,arcsecond,170,Mpc,5/10/23 20:56,first,1.47,190
+4129,1576,6565,angstrom,6565,angstrom,0,km / s,39,arcsecond,162,Mpc,7/19/23 13:31,first,2.03,195
+4935,1576,6565,angstrom,6803,angstrom,46,km/s,35,arcsecond,180,Mpc,7/31/24 17:52,first,0,216
+3984,1576,6565,angstrom,6573,angstrom,366,km / s,22,arcsecond,286,Mpc,5/10/23 21:35,first,1,190
+4289,1576,6565,angstrom,6779,angstrom,9779,km / s,33,arcsecond,191,Mpc,11/16/23 19:49,first,1.01,202
+4399,1576,6565,angstrom,6798,angstrom,10647,km / s,35,arcsecond,180,Mpc,11/29/23 20:54,first,1,206
+4298,1576,6565,angstrom,6803,angstrom,10876,km / s,32,arcsecond,197,Mpc,11/16/23 19:47,first,1,202
+4930,1576,6565,angstrom,6803,angstrom,10971,km/s,30,arcsecond,210,Mpc,7/31/24 18:05,first,0,216
+4135,1576,6565,angstrom,6808,angstrom,11104,km / s,32,arcsecond,197,Mpc,7/19/23 13:23,first,4,195
+3900,1576,6565,angstrom,6809,angstrom,11150,km / s,33,arcsecond,191,Mpc,5/10/23 18:20,first,2.29,188
+4134,1576,6565,angstrom,6809,angstrom,11150,km / s,22,arcsecond,286,Mpc,7/19/23 13:18,first,1.78,195
+4384,1576,6565,angstrom,6809,angstrom,11150,km / s,36,arcsecond,175,Mpc,11/29/23 19:08,first,1.63,205
+4409,1576,6565,angstrom,6809,angstrom,11150,km / s,33,arcsecond,191,Mpc,11/29/23 20:25,first,2.35,206
+4316,1576,6565,angstrom,6810,angstrom,11196,km / s,16,arcsecond,394,Mpc,11/16/23 23:07,first,0,203
+4923,1576,6565,angstrom,6808,angstrom,11199,km/s,30,arcsecond,210,Mpc,7/31/24 17:41,first,0,216
+3982,1576,6565,angstrom,6811,angstrom,11241,km / s,33,arcsecond,191,Mpc,5/10/23 21:06,first,2.38,190
+4919,1576,6565,angstrom,6809,angstrom,11245,km/s,29,arcsecond,217,Mpc,7/31/24 18:22,first,0,216
+3774,1576,6565,angstrom,6813,angstrom,11333,km / s,36,arcsecond,175,Mpc,5/8/23 16:02,first,1,184
+4915,1576,6565,angstrom,8400,angstrom,11336,km/s,43,arcsecond,147,Mpc,7/31/24 17:56,first,0,216
+4934,1576,6565,angstrom,6811,angstrom,11336,km/s,157,arcsecond,40,Mpc,7/31/24 17:36,first,0,216
+4922,1576,6565,angstrom,6812,angstrom,11382,km/s,80,arcsecond,79,Mpc,7/31/24 17:56,first,0,216
+4291,1576,6565,angstrom,6816,angstrom,11470,km / s,33,arcsecond,191,Mpc,11/16/23 19:51,first,1,202
+4294,1576,6565,angstrom,6819,angstrom,11607,km / s,31,arcsecond,203,Mpc,11/16/23 20:05,first,1.3,202
+4328,1576,6565,angstrom,6821,angstrom,11698,km / s,36,arcsecond,175,Mpc,11/16/23 23:16,first,3.65,203
+3980,1576,6565,angstrom,6823,angstrom,11790,km / s,31,arcsecond,203,Mpc,5/10/23 21:08,first,1.8,190
+3763,1576,6565,angstrom,6828,angstrom,12018,km / s,29,arcsecond,217,Mpc,5/8/23 16:12,first,1,184
+3993,1576,6565,angstrom,6829,angstrom,12064,km / s,29,arcsecond,217,Mpc,5/10/23 20:58,first,1,190
+4127,1576,6565,angstrom,6829,angstrom,12064,km / s,35,arcsecond,180,Mpc,7/19/23 13:30,first,2.35,195
+4138,1576,6565,angstrom,6830,angstrom,12110,km / s,35,arcsecond,180,Mpc,7/19/23 13:33,first,1,195
+4401,1576,6565,angstrom,6830,angstrom,12110,km / s,31,arcsecond,203,Mpc,11/29/23 20:51,first,1.01,206
+4926,1576,6565,angstrom,6828,angstrom,12113,km/s,33,arcsecond,191,Mpc,7/31/24 18:12,first,0,216
+4125,1576,6565,angstrom,6832,angstrom,12201,km / s,33,arcsecond,191,Mpc,7/19/23 13:43,first,1.17,195
+4380,1576,6565,angstrom,6833,angstrom,12247,km / s,79,arcsecond,80,Mpc,11/29/23 19:06,first,1.52,205
+4326,1576,6565,angstrom,6835,angstrom,12338,km / s,32,arcsecond,197,Mpc,11/16/23 23:35,first,2.06,203
+4332,1576,6565,angstrom,6837,angstrom,12430,km / s,32,arcsecond,197,Mpc,11/16/23 23:22,first,1.25,203
+4300,1576,6565,angstrom,6843,angstrom,12704,km / s,18,arcsecond,350,Mpc,11/16/23 19:40,first,1,202
+4899,1576,6565,angstrom,6899,angstrom,15359,km/s,42,arcsecond,150,Mpc,7/29/24 17:45,first,0,215
+5030,1576,6565,angstrom,6990,angstrom,19519,km / s,37,arcsecond,170,Mpc,10/8/24 18:45,first,0,215
+4879,1576,6565,angstrom,7315,angstrom,34375,km/s,37,arcsecond,170,Mpc,10/25/24 16:41,first,0,215
+4395,1576,6565,angstrom,8154,angstrom,72612,km / s,30,arcsecond,210,Mpc,12/11/23 2:23,first,1.56,206
