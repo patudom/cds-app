@@ -48,6 +48,12 @@ Developer setup is done using [`uv`](https://docs.astral.sh/uv/), a Python packa
    ```bash
    CC=<compiler> uv sync --all-packages
    ```
+
+   Note about `ipywwt`: If you run into an issue with the `npm run build` subprocess command failing when building `ipywwt`, you may
+   need to install `webpack` and `webpack-cli` globally on the Node.js that you're using:
+   ```bash
+   npm i -g webpack webpack-cli
+   ```
 5. Activate the environment:
    ```bash
    source .venv/bin/activate
