@@ -41,7 +41,14 @@ Developer setup is done using [`uv`](https://docs.astral.sh/uv/), a Python packa
    uv sync --all-packages
    ```
    A new environment should now be defined in the `.venv` directory.
-4. Activate the environment:
+
+   Note for Linux developers: `uv` uses Clang as its compiler [by default](https://github.com/astral-sh/uv/issues/8036).
+   As pywwt's `toasty` dependency requires C compilation, this can be a problem, as many Linux distributions don't include Clang by default.
+   Thus, you can either install Clang, or use your system's default compiler (probably `gcc`) in the command, eg:
+   ```bash
+   CC=<compiler> uv sync --all-packages
+   ```
+5. Activate the environment:
    ```bash
    source .venv/bin/activate
    ```
