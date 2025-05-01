@@ -41,7 +41,20 @@ Developer setup is done using [`uv`](https://docs.astral.sh/uv/), a Python packa
    uv sync --all-packages
    ```
    A new environment should now be defined in the `.venv` directory.
-4. Activate the environment:
+
+   Note for Linux developers: `uv` uses Clang as its compiler [by default](https://github.com/astral-sh/uv/issues/8036).
+   As pywwt's `toasty` dependency requires C compilation, this can be a problem, as many Linux distributions don't include Clang by default.
+   Thus, you can either install Clang, or use your system's default compiler (probably `gcc`) in the command, eg:
+   ```bash
+   CC=<compiler> uv sync --all-packages
+   ```
+
+   Note about `ipywwt`: If you run into an issue with the `npm run build` subprocess command failing when building `ipywwt`, you may
+   need to install `webpack` and `webpack-cli` globally on the Node.js that you're using:
+   ```bash
+   npm i -g webpack webpack-cli
+   ```
+5. Activate the environment:
    ```bash
    source .venv/bin/activate
    ```
