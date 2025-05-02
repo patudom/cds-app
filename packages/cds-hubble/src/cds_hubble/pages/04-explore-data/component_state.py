@@ -47,8 +47,8 @@ class ComponentState(BaseComponentState, BaseState):
     hubble_slideshow_state: HubbleSlideshow = HubbleSlideshow()
     draw_click_count: int = 0
     best_fit_click_count: int = 0
-    best_fit_gal_vel: float = 100
-    best_fit_gal_dist: float = 8000
+    best_fit_gal_vel: float = 8000
+    best_fit_gal_dist: float = 100
     class_data_displayed: bool = False
     
     _max_step: int = 0 # not included in model
