@@ -13,11 +13,11 @@ from .stages.p04_explore_data import Page as ExploreDataPage
 from .stages.p05_class_results import Page as ClassResultsPage
 from .stages.p06_prodata import Page as ProDataPage
 from .layout import Layout
-from .state import GLOBAL_STATE, LOCAL_STATE
+from .state import APP_STATE, LOCAL_STATE
 
 MetaLayout = solara.component(
     lambda *args, **kwargs: Layout(
-        *args, **kwargs, local_state=LOCAL_STATE, global_state=GLOBAL_STATE
+        *args, **kwargs, local_state=LOCAL_STATE, global_state=APP_STATE
     )
 )
 
@@ -25,9 +25,7 @@ routes = [
     solara.Route(
         path="/",
         component=solara.component(
-            lambda: IntroductionPage(
-                **{"global_state": GLOBAL_STATE, "local_state": LOCAL_STATE}
-            )
+            lambda: IntroductionPage(**{"app_state": APP_STATE})
         ),
         label="Introduction",
         layout=MetaLayout,
@@ -35,61 +33,39 @@ routes = [
     solara.Route(
         path="spectra-and-velocity",
         component=solara.component(
-            lambda: SpectraAndVelocityPage(
-                **{"global_state": GLOBAL_STATE, "local_state": LOCAL_STATE}
-            )
+            lambda: SpectraAndVelocityPage(**{"app_state": APP_STATE})
         ),
         label="Spectra and Velocity",
-        # layout=MetaLayout,
     ),
     solara.Route(
         path="distance-introduction",
         component=solara.component(
-            lambda: DistanceIntroductionPage(
-                **{"global_state": GLOBAL_STATE, "local_state": LOCAL_STATE}
-            )
+            lambda: DistanceIntroductionPage(**{"app_state": APP_STATE})
         ),
         label="Distance Introduction",
-        # layout=MetaLayout,
     ),
     solara.Route(
         path="distance-measurements",
         component=solara.component(
-            lambda: DistanceMeasurementsPage(
-                **{"global_state": GLOBAL_STATE, "local_state": LOCAL_STATE}
-            )
+            lambda: DistanceMeasurementsPage(**{"app_state": APP_STATE})
         ),
         label="Distance Measurements",
-        # layout=MetaLayout,
     ),
     solara.Route(
         path="explore-data",
-        component=solara.component(
-            lambda: ExploreDataPage(
-                **{"global_state": GLOBAL_STATE, "local_state": LOCAL_STATE}
-            )
-        ),
+        component=solara.component(lambda: ExploreDataPage(**{"app_state": APP_STATE})),
         label="Explore Data",
-        # layout=MetaLayout,
     ),
     solara.Route(
         path="class-results",
         component=solara.component(
-            lambda: ClassResultsPage(
-                **{"global_state": GLOBAL_STATE, "local_state": LOCAL_STATE}
-            )
+            lambda: ClassResultsPage(**{"app_state": APP_STATE})
         ),
         label="Class Results",
-        # layout=MetaLayout,
     ),
     solara.Route(
         path="prodata",
-        component=solara.component(
-            lambda: ProDataPage(
-                **{"global_state": GLOBAL_STATE, "local_state": LOCAL_STATE}
-            )
-        ),
+        component=solara.component(lambda: ProDataPage(**{"app_state": APP_STATE})),
         label="ProData",
-        # layout=MetaLayout,
     ),
 ]
