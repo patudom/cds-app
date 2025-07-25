@@ -10,6 +10,7 @@ from .story_state import StoryState
 
 logger = setup_logger("CDS-HUBBLE INITIALIZE")
 
+
 def import_all_stage_modules():
     """Import all stage states to trigger their registration."""
     import cds_hubble.stages

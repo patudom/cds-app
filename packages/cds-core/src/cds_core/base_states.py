@@ -10,9 +10,10 @@ from typing import (
     Union,
     Literal,
     Callable,
+    Any,
 )
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, field_validator
 from solara import Reactive
 from solara.toestand import Ref
 
@@ -30,31 +31,24 @@ STAGE_REGISTRY: Dict[str, Type["BaseStageState"]] = {}
 STORY_REGISTRY: Dict[str, Type["BaseStoryState"]] = {}
 
 
-def register_model(state_type: str, state_name: str):
-    if state_type == "stage":
+def register_stage(state_name: str):
 
-        def decorator(cls: Type["BaseStageState"]) -> Type["BaseStageState"]:
-            if "type" not in cls.__annotations__:
-                cls.__annotations__["type"] = Literal[state_name]
-                setattr(cls, "type", state_name)
+    def decorator(cls: Type["BaseStageState"]) -> Type["BaseStageState"]:
+        setattr(cls, "type", state_name)
 
-            STAGE_REGISTRY[state_name] = cls
-            return cls
+        STAGE_REGISTRY[state_name] = cls
+        return cls
 
-    elif state_type == "story":
+    return decorator
 
-        def decorator(cls: Type["BaseStoryState"]) -> Type["BaseStoryState"]:
-            if "type" not in cls.__annotations__:
-                cls.__annotations__["type"] = Literal[state_name]
-                setattr(cls, "type", state_name)
 
-            STORY_REGISTRY[state_name] = cls
-            return cls
+def register_story(state_name: str):
 
-    else:
-        raise ValueError(
-            f"Invalid state type: {state_type}. Must be 'stage' or 'story'."
-        )
+    def decorator(cls: Type["BaseStoryState"]) -> Type["BaseStoryState"]:
+        setattr(cls, "type", state_name)
+
+        STORY_REGISTRY[state_name] = cls
+        return cls
 
     return decorator
 
@@ -147,10 +141,45 @@ def transition_previous(component_state: Reactive[BaseStageStateT], force=True):
     transition_to(component_state, previous_marker, force=force)
 
 
+class FreeResponse(BaseModel):
+    tag: str
+    response: str = ""
+    initialized: bool = False
+    stage: str = ""
+
+
+class MultipleChoiceResponse(BaseModel):
+    tag: str
+    score: int = 0
+    choice: int | None = None
+    tries: int = 0
+    wrong_attempts: int = 0
+    stage: str = ""
+
+    @field_validator("score", mode="before")
+    @classmethod
+    def coerce_none_to_zero(cls, v: Any):
+        return 0 if v is None else int(v)
+
+
 class BaseStageState(BaseState):
+    type: str | None = None
     current_step: BaseMarker
     stage_id: str
+    free_responses: Dict[str, FreeResponse] = Field(default_factory=dict)
+    multiple_choice_responses: Dict[str, MultipleChoiceResponse] = Field(
+        default_factory=dict
+    )
     _max_step: int = 0  # not included in model
+
+    def has_response(self, tag: str) -> bool:
+        """Check if a response exists for the given tag."""
+        if response := self.free_responses.get(tag):
+            return response.response != ""
+        elif response := self.multiple_choice_responses.get(tag):
+            return response.score > 0
+
+        return False
 
     # computed fields are included in the model when serialized
     @computed_field
@@ -209,11 +238,8 @@ class BaseStageState(BaseState):
         return self.current_step >= start
 
 
-StageStateUnionFactory: Callable[[], object] = lambda: BaseModel
-StoryStateUnionFactory: Callable[[], object] = lambda: BaseModel
-
-
 class BaseStoryState(BaseState):
+    type: str | None = None
     debug_mode: bool = Field(debug_mode_init, exclude=True)
     title: str
     story_id: str
@@ -222,26 +248,68 @@ class BaseStoryState(BaseState):
     stage_states: Dict[str, Annotated[object, ...]] = Field(default_factory=dict)
 
     def __init__(self, **data):
+        self.patch_union_type()
         super().__init__(**data)
         for stage_name, stage_cls in STAGE_REGISTRY.items():
             if stage_name not in self.stage_states:
                 self.stage_states[stage_name] = stage_cls()
+                self.stage_states[stage_name].type = stage_cls.type
 
     @classmethod
     def patch_union_type(cls):
+        StageStateUnionFactory = lambda: Annotated[
+            Union[tuple(STAGE_REGISTRY.values())], Field(discriminator="type")
+        ]
         cls.__annotations__["stage_states"] = dict[str, StageStateUnionFactory()]
         cls.model_rebuild()
+
+    @field_validator("stage_states", mode="before")
+    @classmethod
+    def hydrate_stage_states(cls, v: Any) -> Dict[str, Annotated[object, ...]]:
+        if isinstance(v, dict):
+            res = {}
+
+            for stage_name, stage_dict in v.items():
+                if stage_name in STAGE_REGISTRY:
+                    stage_cls = STAGE_REGISTRY[stage_name]
+                    res[stage_name] = stage_cls(**stage_dict)
+                    res[stage_name].type = stage_cls.type
+                else:
+                    logger.warning(f"Stage {stage_name} not found in registry.")
+
+            return res
+        return v
 
 
 class BaseAppState(BaseState):
     story_state: Optional[Annotated[object, ...]] = None
 
     def __init__(self, **data):
+        self.patch_union_type()
         super().__init__(**data)
         for story_name, story_cls in STORY_REGISTRY.items():
             self.story_state = story_cls()
+            self.story_state.type = story_cls.type
 
     @classmethod
     def patch_union_type(cls):
+        StoryStateUnionFactory = lambda: Annotated[
+            Union[tuple(STORY_REGISTRY.values())], Field(discriminator="type")
+        ]
         cls.__annotations__["story_states"] = StoryStateUnionFactory()
         cls.model_rebuild()
+
+    @field_validator("story_state", mode="before")
+    @classmethod
+    def hydrate_story_states(cls, v: Any) -> Annotated[object, ...]:
+        if isinstance(v, dict):
+            if "type" in v:
+                story_type = v["type"]
+                if story_type in STORY_REGISTRY:
+                    story_cls = STORY_REGISTRY[story_type]
+                    return story_cls(**v)
+                else:
+                    logger.warning(f"Story type {story_type} not found in registry.")
+            else:
+                logger.warning("No 'type' field found in story state data.")
+        return v

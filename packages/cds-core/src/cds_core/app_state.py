@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from .base_states import BaseAppState, BaseState
 
-update_db_init = os.getenv("CDS_DISABLE_DB", "false").strip().lower() != "true"
+update_db_init = not (os.getenv("CDS_DISABLE_DB", "false").strip().lower() == "true")
 show_team_interface_init = (
     os.getenv("CDS_SHOW_TEAM_INTERFACE", "false").strip().lower() == "true"
 )
