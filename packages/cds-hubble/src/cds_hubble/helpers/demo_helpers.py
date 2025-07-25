@@ -1,11 +1,11 @@
 from solara.toestand import Ref, Reactive
 from cds_core.app_state import AppState
 from ..remote import LocalAPI
-from ..story_state import StudentMeasurement, LocalState
+from ..story_state import StudentMeasurement, StoryState
 
 
 def set_dummy_wavelength(
-    api: LocalAPI, local_state: Reactive[LocalState], global_state: Reactive[AppState]
+    api: LocalAPI, local_state: Reactive[StoryState], global_state: Reactive[AppState]
 ):
     dummy_measurements = api.get_dummy_data()
     measurements = []
@@ -21,7 +21,7 @@ def set_dummy_wavelength(
 
 
 def set_dummy_wavelength_and_velocity(
-    api: LocalAPI, local_state: Reactive[LocalState], global_state: Reactive[AppState]
+    api: LocalAPI, local_state: Reactive[StoryState], global_state: Reactive[AppState]
 ):
     dummy_measurements = api.get_dummy_data()
     measurements = []
@@ -38,7 +38,7 @@ def set_dummy_wavelength_and_velocity(
 
 
 def set_dummy_wave_vel_ang(
-    api: LocalAPI, local_state: Reactive[LocalState], global_state: Reactive[AppState]
+    api: LocalAPI, local_state: Reactive[StoryState], global_state: Reactive[AppState]
 ):
     dummy_measurements = api.get_dummy_data()
     measurements = []
@@ -56,7 +56,7 @@ def set_dummy_wave_vel_ang(
 
 
 def set_dummy_angular_size_and_distance(
-    api: LocalAPI, local_state: Reactive[LocalState], global_state: Reactive[AppState]
+    api: LocalAPI, local_state: Reactive[StoryState], global_state: Reactive[AppState]
 ):
     dummy_measurements = api.get_dummy_data()
     measurements = []
@@ -73,7 +73,7 @@ def set_dummy_angular_size_and_distance(
 
 
 def set_dummy_all_measurements(
-    api: LocalAPI, local_state: Reactive[LocalState], global_state: Reactive[AppState]
+    api: LocalAPI, local_state: Reactive[StoryState], global_state: Reactive[AppState]
 ):
     dummy_measurements = api.get_dummy_data()
     for measurement in dummy_measurements:

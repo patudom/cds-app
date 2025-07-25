@@ -18,7 +18,7 @@ from .viewer_marker_colors import (
     GENERIC_COLOR,
 )
 from ..remote import LOCAL_API
-from ..story_state import LocalState, StudentMeasurement
+from ..story_state import StoryState, StudentMeasurement
 from ..utils import _add_link
 from ..utils import subset_by_label
 
@@ -101,7 +101,7 @@ def _init_second_example_measurement(example_measurements: list[StudentMeasureme
 
 
 def load_and_create_seed_data(
-    gjapp: JupyterApplication, local_state: Reactive[LocalState]
+    gjapp: JupyterApplication, local_state: Reactive[StoryState]
 ):
     example_seed_data = LOCAL_API.get_example_seed_measurement(which="both")
 

@@ -1,6 +1,7 @@
 import time
 
 import solara
+from deepdiff import DeepDiff
 from solara import Reactive
 from solara.lab import Ref
 
@@ -8,14 +9,14 @@ from cds_core.app_state import AppState
 from cds_core.layout import BaseLayout, BaseSetup
 from cds_core.logger import setup_logger
 from .remote import LOCAL_API
-from .story_state import LocalState
-from .utils import push_to_route
+from .story_state import StoryState
+from .utils import push_to_route, extract_changed_subtree
 
 logger = setup_logger("LAYOUT")
 
 
 def _load_state(
-    global_state: Reactive[AppState], local_state: Reactive[LocalState], *args, **kwargs
+    global_state: Reactive[AppState], local_state: Reactive[StoryState], *args, **kwargs
 ):
     # Force reset global and local states
     logger.info("Clearing local states.")
@@ -46,7 +47,7 @@ def _load_state(
     Ref(local_state.fields.measurements_loaded).set(True)
 
 
-def _write_state(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
+def _write_state(global_state: Reactive[AppState], local_state: Reactive[StoryState]):
     # Listen for changes in the states and write them to the database
     put_state = LOCAL_API.put_story_state(global_state, local_state)
 
@@ -69,7 +70,7 @@ def _write_state(global_state: Reactive[AppState], local_state: Reactive[LocalSt
 def Layout(
     children=[],
     global_state: Reactive[AppState] = None,
-    local_state: Reactive[LocalState] = None,
+    local_state: Reactive[StoryState] = None,
 ):
     BaseSetup(remote_api=LOCAL_API, global_state=global_state, local_state=local_state)
 
@@ -80,7 +81,7 @@ def Layout(
     state_write_queue = solara.use_reactive([])
 
     def _wrap_write_state(new: AppState, old: AppState):
-        diff = set(new.as_dict().items()) ^ set(old.as_dict().items())
+        diff = extract_changed_subtree(old.as_dict(), new.as_dict())
         state_write_queue.set(state_write_queue.value + [diff])
 
     global_state.subscribe_change(_wrap_write_state)
