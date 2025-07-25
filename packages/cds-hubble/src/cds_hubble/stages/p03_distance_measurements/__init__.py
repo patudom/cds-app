@@ -13,11 +13,16 @@ from solara import Reactive
 from solara.lab import computed
 from solara.toestand import Ref
 
-from cds_core.base_states import transition_next, transition_previous, transition_to
+from cds_core.base_states import (
+    transition_next,
+    transition_previous,
+    transition_to,
+    MultipleChoiceResponse,
+)
 from cds_core.components import ScaffoldAlert, StateEditor
 from cds_core.logger import setup_logger
 from cds_core.app_state import AppState
-from .component_state import Marker
+from .stage_state import Marker, StageState
 from ...components import (
     AngsizeDosDontsSlideshow,
     DataTable,
@@ -38,7 +43,7 @@ from ...helpers.viewer_marker_colors import (
 )
 from ...remote import LOCAL_API
 from ...story_state import (
-    LocalState,
+    StoryState,
     get_multiple_choice,
     mc_callback,
 )
@@ -161,8 +166,11 @@ def DistanceToolComponent(
 
 
 @solara.component
-def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
-    COMPONENT_STATE = Ref(local_state.fields.stage_states["distance_measurements"])
+def Page(app_state: Reactive[AppState]):
+    story_state = Ref(cast(StoryState, app_state.fields.story_state))
+    stage_state = Ref(
+        cast(StageState, story_state.fields.stage_states["distance_measurements"])
+    )
 
     # === Setup State Loading and Writing ===
     router = solara.use_router()
@@ -173,7 +181,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
     seed_data_setup = solara.use_reactive(False)
 
     def glue_setup() -> JupyterApplication:
-        gjapp = _glue_setup(global_state, local_state)
+        gjapp = _glue_setup(app_state, story_state)
         if EXAMPLE_GALAXY_SEED_DATA not in gjapp.data_collection:
             logger.error(f"Missing {EXAMPLE_GALAXY_SEED_DATA} in glue data collection.")
         else:
@@ -186,7 +194,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
 
     def add_or_update_example_measurements_to_glue():
         if gjapp is not None:
-            _add_or_update_example_measurements_to_glue(local_state, gjapp)
+            _add_or_update_example_measurements_to_glue(story_state, gjapp)
             assert_example_measurements_in_glue(gjapp)
             example_data_setup.set(True)
 
@@ -197,8 +205,8 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
     def _on_marker_updated(marker_new, marker_old):
         # logger.info(f"Marker updated from {marker_old} to {marker_new}")
         if marker_old == Marker.est_dis3:
-            _distance_cb(COMPONENT_STATE.value.meas_theta)
-            Ref(COMPONENT_STATE.fields.fill_est_dist_values).set(True)
+            _distance_cb(stage_state.value.meas_theta)
+            Ref(stage_state.fields.fill_est_dist_values).set(True)
 
         if marker_new == Marker.dot_seq5:
             # clear the canvas before we get to the second measurement.
@@ -216,127 +224,122 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
         # See Stage 1 for an example of how to do this manually.
 
         def _on_example_galaxy_selected(*args):
-            if COMPONENT_STATE.value.is_current_step(Marker.cho_row1):
-                transition_to(COMPONENT_STATE, Marker.ang_siz2)
+            if stage_state.value.is_current_step(Marker.cho_row1):
+                transition_to(stage_state, Marker.ang_siz2)
 
-        selected_example_galaxy = Ref(COMPONENT_STATE.fields.selected_example_galaxy)
+        selected_example_galaxy = Ref(stage_state.fields.selected_example_galaxy)
         selected_example_galaxy.subscribe(_on_example_galaxy_selected)
 
         def _on_ruler_clicked_first_time(*args):
             if (
-                COMPONENT_STATE.value.is_current_step(Marker.ang_siz3)
-                and COMPONENT_STATE.value.ruler_click_count == 1
+                stage_state.value.is_current_step(Marker.ang_siz3)
+                and stage_state.value.ruler_click_count == 1
             ):
-                transition_to(COMPONENT_STATE, Marker.ang_siz4)
+                transition_to(stage_state, Marker.ang_siz4)
 
-        ruler_click_count = Ref(COMPONENT_STATE.fields.ruler_click_count)
+        ruler_click_count = Ref(stage_state.fields.ruler_click_count)
         ruler_click_count.subscribe(_on_ruler_clicked_first_time)
 
         def _on_measurement_added(*args):
             if (
-                COMPONENT_STATE.value.is_current_step(Marker.ang_siz4)
-                and COMPONENT_STATE.value.n_meas == 1
+                stage_state.value.is_current_step(Marker.ang_siz4)
+                and stage_state.value.n_meas == 1
             ):
-                transition_to(COMPONENT_STATE, Marker.ang_siz5)
+                transition_to(stage_state, Marker.ang_siz5)
 
-        n_meas = Ref(COMPONENT_STATE.fields.n_meas)
+        n_meas = Ref(stage_state.fields.n_meas)
         n_meas.subscribe(_on_measurement_added)
 
-        example_measurements = Ref(local_state.fields.example_measurements)
+        example_measurements = Ref(story_state.fields.example_measurements)
 
         def _on_example_measurement_change(meas):
             # make sure the 2nd one is initialized
-            initialize_second_example_measurement(local_state)
+            initialize_second_example_measurement(story_state)
 
             # make sure it is in glue
             add_or_update_example_measurements_to_glue()
 
             # make sure it is in the seed data
-            _update_seed_data_with_examples(global_state, gjapp, meas)
+            _update_seed_data_with_examples(app_state, gjapp, meas)
 
         example_measurements.subscribe(_on_example_measurement_change)
 
-        Ref(COMPONENT_STATE.fields.current_step).subscribe_change(_on_marker_updated)
+        Ref(stage_state.fields.current_step).subscribe_change(_on_marker_updated)
 
         def show_ruler_range(marker):
             print(f"show_ruler_range: {marker}")
-            COMPONENT_STATE.value.show_ruler = marker.is_between(
+            stage_state.value.show_ruler = marker.is_between(
                 Marker.ang_siz3, Marker.est_dis4
             ) or marker.is_between(Marker.dot_seq5, Marker.last())
 
-        Ref(COMPONENT_STATE.fields.current_step).subscribe(show_ruler_range)
+        Ref(stage_state.fields.current_step).subscribe(show_ruler_range)
 
     solara.use_effect(_state_callback_setup, dependencies=[])
 
     def _initialize_state():
-        if not local_state.value.measurements_loaded:
+        if not story_state.value.measurements_loaded:
             return
 
         logger.info("Initializing state")
 
-        if COMPONENT_STATE.value.current_step.value >= Marker.cho_row1.value:
-            selected_example_galaxy = Ref(
-                COMPONENT_STATE.fields.selected_example_galaxy
-            )
+        if stage_state.value.current_step.value >= Marker.cho_row1.value:
+            selected_example_galaxy = Ref(stage_state.fields.selected_example_galaxy)
 
         angular_sizes_total = 0
-        for measurement in local_state.value.measurements:
+        for measurement in story_state.value.measurements:
             if measurement.ang_size_value is not None:
                 angular_sizes_total += 1
-        if COMPONENT_STATE.value.angular_sizes_total != angular_sizes_total:
-            Ref(COMPONENT_STATE.fields.angular_sizes_total).set(angular_sizes_total)
+        if stage_state.value.angular_sizes_total != angular_sizes_total:
+            Ref(stage_state.fields.angular_sizes_total).set(angular_sizes_total)
 
         example_angular_sizes_total = 0
-        for measurement in local_state.value.example_measurements:
+        for measurement in story_state.value.example_measurements:
             if measurement.ang_size_value is not None:
                 example_angular_sizes_total += 1
-        if (
-            COMPONENT_STATE.value.example_angular_sizes_total
-            != example_angular_sizes_total
-        ):
-            Ref(COMPONENT_STATE.fields.example_angular_sizes_total).set(
+        if stage_state.value.example_angular_sizes_total != example_angular_sizes_total:
+            Ref(stage_state.fields.example_angular_sizes_total).set(
                 example_angular_sizes_total
             )
 
     solara.use_memo(
         _initialize_state,
         dependencies=[
-            Ref(local_state.fields.measurements_loaded).value,
+            Ref(story_state.fields.measurements_loaded).value,
         ],
     )
 
     def _fill_data_points():
-        set_dummy_all_measurements(LOCAL_API, local_state, global_state)
-        Ref(COMPONENT_STATE.fields.angular_sizes_total).set(5)
-        push_to_route(router, location, "04-explore-data")
+        set_dummy_all_measurements(LOCAL_API, story_state, app_state)
+        Ref(stage_state.fields.angular_sizes_total).set(5)
+        push_to_route(router, location, "explore-data")
 
     def _fill_thetas():
-        set_dummy_wave_vel_ang(LOCAL_API, local_state, global_state)
-        Ref(COMPONENT_STATE.fields.angular_sizes_total).set(5)
+        set_dummy_wave_vel_ang(LOCAL_API, story_state, app_state)
+        Ref(stage_state.fields.angular_sizes_total).set(5)
 
     example_data_setup = solara.use_reactive(False)
 
     def _init_glue_data_setup():
         logger.info("The glue data use effect")
-        if Ref(local_state.fields.measurements_loaded).value:
+        if Ref(story_state.fields.measurements_loaded).value:
             add_or_update_example_measurements_to_glue()
-            initialize_second_example_measurement(local_state)
+            initialize_second_example_measurement(story_state)
 
     solara.use_effect(
         _init_glue_data_setup,
-        dependencies=[Ref(local_state.fields.measurements_loaded).value],
+        dependencies=[Ref(story_state.fields.measurements_loaded).value],
     )
 
-    if global_state.value.show_team_interface:
+    if app_state.value.show_team_interface:
         with solara.Row():
             with solara.Column():
                 StateEditor(
                     Marker,
-                    COMPONENT_STATE,
-                    local_state,
-                    global_state,
+                    stage_state,
+                    story_state,
+                    app_state,
                     LOCAL_API,
-                    show_all=not global_state.value.educator,
+                    show_all=not app_state.value.educator,
                 )
             with solara.Column():
                 solara.Button(
@@ -347,9 +350,9 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
 
     def put_measurements(samples):
         if samples:
-            LOCAL_API.put_sample_measurements(global_state, local_state)
+            LOCAL_API.put_sample_measurements(app_state, story_state)
         else:
-            LOCAL_API.put_measurements(global_state, local_state)
+            LOCAL_API.put_measurements(app_state, story_state)
 
     def _update_angular_size(
         update_example: bool,
@@ -362,11 +365,11 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
         # if bool(galaxy) and angular_size is not None:
         arcsec_value = int(angular_size.to(u.arcsec).value)
         if update_example:
-            index = local_state.value.get_example_measurement_index(
+            index = story_state.value.get_example_measurement_index(
                 galaxy["id"], measurement_number=meas_num
             )
             if index is not None:
-                measurement = Ref(local_state.fields.example_measurements[index])
+                measurement = Ref(story_state.fields.example_measurements[index])
                 measurement.set(
                     measurement.value.model_copy(
                         update={
@@ -380,15 +383,15 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                     f"Could not find measurement for galaxy {galaxy['id']}"
                 )
         else:
-            index = local_state.value.get_measurement_index(galaxy["id"])
+            index = story_state.value.get_measurement_index(galaxy["id"])
             if index is not None:
-                measurements = local_state.value.measurements
-                measurement = local_state.value.measurements[index]
+                measurements = story_state.value.measurements
+                measurement = story_state.value.measurements[index]
                 measurement = measurement.model_copy(
                     update={"ang_size_value": arcsec_value, "brightness": brightness}
                 )
                 measurements[index] = measurement
-                Ref(local_state.fields.measurements).set(measurements)
+                Ref(story_state.fields.measurements).set(measurements)
                 count.set(count.value + 1)
             else:
                 raise ValueError(
@@ -397,7 +400,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
 
     @computed
     def use_second_measurement():
-        return Ref(COMPONENT_STATE.fields.current_step).value >= Marker.dot_seq5
+        return Ref(stage_state.fields.current_step).value >= Marker.dot_seq5
 
     def _update_distance_measurement(
         update_example: bool, galaxy, theta, measurement_number="first"
@@ -405,12 +408,12 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
         # if bool(galaxy) and theta is not None:
         distance = distance_from_angular_size(theta)
         if update_example:
-            index = local_state.value.get_example_measurement_index(
+            index = story_state.value.get_example_measurement_index(
                 galaxy["id"], measurement_number=measurement_number
             )
             if index is not None:
-                measurements = local_state.value.example_measurements
-                measurement = Ref(local_state.fields.example_measurements[index])
+                measurements = story_state.value.example_measurements
+                measurement = Ref(story_state.fields.example_measurements[index])
                 measurement.set(
                     measurement.value.model_copy(update={"est_dist_value": distance})
                 )
@@ -419,15 +422,15 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                     f"Could not find measurement for galaxy {galaxy['id']}"
                 )
         else:
-            index = local_state.value.get_measurement_index(galaxy["id"])
+            index = story_state.value.get_measurement_index(galaxy["id"])
             if index is not None:
-                measurements = local_state.value.measurements
+                measurements = story_state.value.measurements
                 measurement = measurements[index]
                 measurement = measurement.model_copy(
                     update={"est_dist_value": distance}
                 )
                 measurements[index] = measurement
-                Ref(local_state.fields.measurements).set(measurements)
+                Ref(story_state.fields.measurements).set(measurements)
             else:
                 raise ValueError(
                     f"Could not find measurement for galaxy {galaxy['id']}"
@@ -435,14 +438,12 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
 
     ang_size_dotplot_range = solara.use_reactive([])
     dist_dotplot_range = solara.use_reactive([])
-    fill_galaxy_pressed = solara.use_reactive(
-        COMPONENT_STATE.value.distances_total >= 5
-    )
+    fill_galaxy_pressed = solara.use_reactive(stage_state.value.distances_total >= 5)
     current_brightness = solara.use_reactive(1.0)
 
     @computed
     def sync_dotplot_axes():
-        return Ref(COMPONENT_STATE.fields.current_step_between).value(
+        return Ref(stage_state.fields.current_step_between).value(
             Marker.dot_seq1, Marker.dot_seq5c
         )
 
@@ -468,7 +469,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
     # Insurance policy
     async def _wwt_ready_timeout():
         await asyncio.sleep(7)
-        Ref(COMPONENT_STATE.fields.wwt_ready).set(True)
+        Ref(stage_state.fields.wwt_ready).set(True)
 
     solara.lab.use_task(_wwt_ready_timeout)
 
@@ -484,48 +485,48 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineAngsizeMeas1.vue",
                 event_back_callback=lambda _: push_to_route(
-                    router, location, "02-distance-introduction"
+                    router, location, "distance-introduction"
                 ),
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.ang_siz1),
+                event_next_callback=lambda _: transition_next(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.ang_siz1),
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineAngsizeMeas2.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.ang_siz2),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.ang_siz2),
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineAngsizeMeas2b.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.ang_siz2b),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.ang_siz2b),
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineAngsizeMeas3.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.ang_siz3),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.ang_siz3),
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineAngsizeMeas4.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.ang_siz4),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.ang_siz4),
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineAngsizeMeas5a.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.ang_siz5a),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.ang_siz5a),
                 state_view={
-                    "dosdonts_tutorial_opened": COMPONENT_STATE.value.dosdonts_tutorial_opened
+                    "dosdonts_tutorial_opened": stage_state.value.dosdonts_tutorial_opened
                 },
             )
             # This was skipped in voila version
@@ -541,41 +542,39 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineDotplotSeq5.vue",
                 # event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                event_next_callback=lambda _: transition_next(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
                 scroll_on_mount=False,
-                show=COMPONENT_STATE.value.is_current_step(Marker.dot_seq5),
+                show=stage_state.value.is_current_step(Marker.dot_seq5),
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineDotplotSeq5b.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.dot_seq5b),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.dot_seq5b),
             )
 
         with rv.Col():
 
             @computed
             def on_example_galaxy_marker():
-                return (
-                    Ref(COMPONENT_STATE.fields.current_step).value <= Marker.dot_seq5c
-                )
+                return Ref(stage_state.fields.current_step).value <= Marker.dot_seq5c
 
             @computed
             def current_galaxy():
                 if on_example_galaxy_marker.value:
-                    return Ref(COMPONENT_STATE.fields.selected_example_galaxy).value
+                    return Ref(stage_state.fields.selected_example_galaxy).value
                 else:
-                    return Ref(COMPONENT_STATE.fields.selected_galaxy).value
+                    return Ref(stage_state.fields.selected_galaxy).value
 
             @computed
             def current_data():
                 return (
-                    local_state.value.example_measurements
+                    story_state.value.example_measurements
                     if on_example_galaxy_marker.value
-                    else local_state.value.measurements
+                    else story_state.value.measurements
                 )
 
             def _ang_size_cb(angle):
@@ -586,9 +585,9 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                 """
                 data = current_data.value
                 count = (
-                    Ref(COMPONENT_STATE.fields.example_angular_sizes_total)
+                    Ref(stage_state.fields.example_angular_sizes_total)
                     if on_example_galaxy_marker.value
-                    else Ref(COMPONENT_STATE.fields.angular_sizes_total)
+                    else Ref(stage_state.fields.angular_sizes_total)
                 )
                 _update_angular_size(
                     on_example_galaxy_marker.value,
@@ -601,29 +600,29 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                 put_measurements(samples=on_example_galaxy_marker.value)
                 if on_example_galaxy_marker.value:
                     value = int(angle.to(u.arcsec).value)
-                    meas_theta = Ref(COMPONENT_STATE.fields.meas_theta)
+                    meas_theta = Ref(stage_state.fields.meas_theta)
                     meas_theta.set(value)
-                    n_meas = Ref(COMPONENT_STATE.fields.n_meas)
-                    n_meas.set(COMPONENT_STATE.value.n_meas + 1)
-                if COMPONENT_STATE.value.bad_measurement:
-                    bad_measurement = Ref(COMPONENT_STATE.fields.bad_measurement)
+                    n_meas = Ref(stage_state.fields.n_meas)
+                    n_meas.set(stage_state.value.n_meas + 1)
+                if stage_state.value.bad_measurement:
+                    bad_measurement = Ref(stage_state.fields.bad_measurement)
                     bad_measurement.set(False)
                 auto_fill_distance = (
-                    COMPONENT_STATE.value.current_step_between(
+                    stage_state.value.current_step_between(
                         Marker.est_dis4, Marker.dot_seq5c
                     )
-                    or COMPONENT_STATE.value.current_step.value >= Marker.fil_rem1.value
+                    or stage_state.value.current_step.value >= Marker.fil_rem1.value
                     or fill_galaxy_pressed.value
                 )
                 # the above, but if the student goes back, the distance should update if the distance is already set.
                 if on_example_galaxy_marker.value:
-                    index = local_state.value.get_example_measurement_index(
+                    index = story_state.value.get_example_measurement_index(
                         current_galaxy.value["id"],
                         measurement_number=example_galaxy_measurement_number.value,
                     )
                     if (
                         index is not None
-                        and local_state.value.example_measurements[index].est_dist_value
+                        and story_state.value.example_measurements[index].est_dist_value
                         is not None
                     ):
                         logger.info(f"autofill the distance of index {index}")
@@ -632,7 +631,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                     _distance_cb(angle.to(u.arcsec).value)
 
             def _bad_measurement_cb():
-                bad_measurement = Ref(COMPONENT_STATE.fields.bad_measurement)
+                bad_measurement = Ref(stage_state.fields.bad_measurement)
                 bad_measurement.set(True)
 
             def _distance_cb(theta):
@@ -650,7 +649,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                 put_measurements(samples=on_example_galaxy_marker.value)
 
             def _get_ruler_clicks_cb(count):
-                ruler_click_count = Ref(COMPONENT_STATE.fields.ruler_click_count)
+                ruler_click_count = Ref(stage_state.fields.ruler_click_count)
                 ruler_click_count.set(count)
 
             def brightness_callback(brightness):
@@ -662,7 +661,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
             # solara.Button("Reset Canvas", on_click=lambda: reset_canvas.set(reset_canvas.value + 1))
             DistanceToolComponent(
                 galaxy=current_galaxy.value,
-                show_ruler=COMPONENT_STATE.value.show_ruler,
+                show_ruler=stage_state.value.show_ruler,
                 angular_size_callback=_ang_size_cb,
                 ruler_count_callback=_get_ruler_clicks_cb,
                 bad_measurement_callback=_bad_measurement_cb,
@@ -675,10 +674,10 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                     if on_example_galaxy_marker.value
                     else normal_guard_range
                 ),
-                on_wwt_ready=lambda: Ref(COMPONENT_STATE.fields.wwt_ready).set(True),
+                on_wwt_ready=lambda: Ref(stage_state.fields.wwt_ready).set(True),
             )
 
-            if COMPONENT_STATE.value.bad_measurement:
+            if stage_state.value.bad_measurement:
                 rv.Alert(
                     elevation=2,
                     icon="mdi-alert-circle-outline",
@@ -691,89 +690,89 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                 )
 
             with rv.Col(cols=6, offset=3):
-                if COMPONENT_STATE.value.current_step_at_or_after(Marker.ang_siz5a):
+                if stage_state.value.current_step_at_or_after(Marker.ang_siz5a):
                     dosdonts_tutorial_opened = Ref(
-                        COMPONENT_STATE.fields.dosdonts_tutorial_opened
+                        stage_state.fields.dosdonts_tutorial_opened
                     )
                     AngsizeDosDontsSlideshow(
                         event_on_dialog_opened=lambda *args: dosdonts_tutorial_opened.set(
                             True
                         ),
                         image_location=get_image_path(router, "stage_two_dos_donts"),
-                        show_team_interface=global_state.value.show_team_interface,
+                        show_team_interface=app_state.value.show_team_interface,
                     )
 
     with solara.ColumnsResponsive(12, large=[4, 8]):
         with rv.Col():
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineChooseRow1.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.cho_row1),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.cho_row1),
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineAngsizeMeas5.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.ang_siz5),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.ang_siz5),
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineEstimateDistance1.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.est_dis1),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.est_dis1),
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineEstimateDistance2.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.est_dis2),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.est_dis2),
                 state_view={"distance_const": DISTANCE_CONSTANT},
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineEstimateDistance3.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.est_dis3),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.est_dis3),
                 event_set_distance=_distance_cb,
                 state_view={
                     "distance_const": DISTANCE_CONSTANT,
-                    "meas_theta": COMPONENT_STATE.value.meas_theta,
-                    "fill_values": COMPONENT_STATE.value.fill_est_dist_values,
+                    "meas_theta": stage_state.value.meas_theta,
+                    "fill_values": stage_state.value.fill_est_dist_values,
                 },
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineEstimateDistance4.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.est_dis4),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.est_dis4),
                 state_view={
                     "distance_const": DISTANCE_CONSTANT,
-                    "meas_theta": COMPONENT_STATE.value.meas_theta,
+                    "meas_theta": stage_state.value.meas_theta,
                 },
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineRepeatRemainingGalaxies.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.rep_rem1),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.rep_rem1),
                 scroll_on_mount=False,
                 state_view={
-                    "angular_sizes_total": COMPONENT_STATE.value.angular_sizes_total,
+                    "angular_sizes_total": stage_state.value.angular_sizes_total,
                     # TODO: will need to fix this once we have an angular size measurement guard.
                     "bad_angsize": False,
                 },
             )
             if (
-                COMPONENT_STATE.value.is_current_step(Marker.rep_rem1)
-                and global_state.value.show_team_interface
+                stage_state.value.is_current_step(Marker.rep_rem1)
+                and app_state.value.show_team_interface
             ):
                 solara.Button(
                     label="DEMO SHORTCUT: FILL θ MEASUREMENTS",
@@ -784,21 +783,21 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineFillRemainingGalaxies.vue",
                 event_next_callback=lambda _: push_to_route(
-                    router, location, "04-explore-data"
+                    router, location, "explore-data"
                 ),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.fil_rem1),
-                state_view={"distances_total": COMPONENT_STATE.value.distances_total},
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.fil_rem1),
+                state_view={"distances_total": stage_state.value.distances_total},
             )
 
         with rv.Col():
             with rv.Card(class_="pa-0 ma-0", elevation=0):
 
-                distances_total = Ref(COMPONENT_STATE.fields.distances_total)
+                distances_total = Ref(stage_state.fields.distances_total)
 
                 def fill_galaxy_distances():
-                    dataset = local_state.value.measurements
+                    dataset = story_state.value.measurements
                     count = 0
                     has_ang_size = all(
                         measurement.ang_size_value is not None
@@ -829,8 +828,8 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                     fill_galaxy_pressed.set(True)
 
                 if (
-                    COMPONENT_STATE.value.current_step_at_or_after(Marker.fil_rem1)
-                    and global_state.value.show_team_interface
+                    stage_state.value.current_step_at_or_after(Marker.fil_rem1)
+                    and app_state.value.show_team_interface
                 ):
                     solara.Button(
                         "Demo Shortcut: Fill Galaxy Distances",
@@ -849,29 +848,26 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                     {"text": "Distance (Mpc)", "value": "est_dist_value"},
                 ]
 
-            if COMPONENT_STATE.value.current_step.value < Marker.rep_rem1.value:
+            if stage_state.value.current_step.value < Marker.rep_rem1.value:
 
                 def update_example_galaxy(galaxy):
                     flag = galaxy.get("value", True)
                     value = galaxy["item"]["galaxy"] if flag else None
                     selected_example_galaxy = Ref(
-                        COMPONENT_STATE.fields.selected_example_galaxy
+                        stage_state.fields.selected_example_galaxy
                     )
                     logger.debug(f"selected_example_galaxy: {value}")
                     selected_example_galaxy.set(value)
-                    if COMPONENT_STATE.value.is_current_step(Marker.cho_row1):
-                        transition_to(COMPONENT_STATE, Marker.ang_siz2)
+                    if stage_state.value.is_current_step(Marker.cho_row1):
+                        transition_to(stage_state, Marker.ang_siz2)
 
                 @computed
                 def selected_example_galaxy_index() -> list:
-                    if (
-                        Ref(COMPONENT_STATE.fields.selected_example_galaxy).value
-                        is None
-                    ):
+                    if Ref(stage_state.fields.selected_example_galaxy).value is None:
                         return []
                     if (
                         "id"
-                        not in Ref(COMPONENT_STATE.fields.selected_example_galaxy).value
+                        not in Ref(stage_state.fields.selected_example_galaxy).value
                     ):
                         return []
                     return [0]
@@ -881,13 +877,13 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                     if use_second_measurement.value:
                         return [
                             x.dict()
-                            for x in local_state.value.example_measurements
+                            for x in story_state.value.example_measurements
                             if x.measurement_number == "second"
                         ]
                     else:
                         return [
                             x.dict()
-                            for x in local_state.value.example_measurements
+                            for x in story_state.value.example_measurements
                             if x.measurement_number == "first"
                         ]
 
@@ -914,15 +910,15 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                 def update_galaxy(galaxy):
                     flag = galaxy.get("value", True)
                     value = galaxy["item"]["galaxy"] if flag else None
-                    selected_galaxy = Ref(COMPONENT_STATE.fields.selected_galaxy)
+                    selected_galaxy = Ref(stage_state.fields.selected_galaxy)
                     selected_galaxy.set(value)
 
                 @computed
                 def selected_galaxy_index():
                     try:
                         return [
-                            local_state.value.get_measurement_index(
-                                Ref(COMPONENT_STATE.fields.selected_galaxy).value["id"]
+                            story_state.value.get_measurement_index(
+                                Ref(stage_state.fields.selected_galaxy).value["id"]
                             )
                         ]
                     except:
@@ -930,12 +926,12 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
 
                 @computed
                 def table_kwargs():
-                    ang_size_tot = Ref(COMPONENT_STATE.fields.angular_sizes_total).value
+                    ang_size_tot = Ref(stage_state.fields.angular_sizes_total).value
                     table_data = [
                         s.model_dump(
                             exclude={"galaxy": {"spectrum"}, "measurement_number": True}
                         )
-                        for s in Ref(local_state.fields.measurements).value
+                        for s in Ref(story_state.fields.measurements).value
                     ]
                     return {
                         "title": "My Galaxies",
@@ -948,7 +944,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                         "button_icon": "mdi-tape-measure",
                         "button_tooltip": "Calculate & Fill Distances",
                         "show_button": Ref(
-                            COMPONENT_STATE.fields.current_step_at_or_after
+                            stage_state.fields.current_step_at_or_after
                         ).value(Marker.fil_rem1),
                         "event_on_button_pressed": lambda _: fill_galaxy_distances(),
                     }
@@ -959,74 +955,76 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
         with rv.Col():
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineDotplotSeq1.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.dot_seq1),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.dot_seq1),
                 state_view={
                     "color": MY_DATA_COLOR_NAME,
                 },
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineDotplotSeq2.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.dot_seq2),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.dot_seq2),
                 event_mc_callback=lambda event: mc_callback(
-                    event, local_state, COMPONENT_STATE
+                    event, story_state, stage_state
                 ),
                 state_view={
-                    "mc_score": get_multiple_choice(
-                        local_state, COMPONENT_STATE, "ang_meas_consensus"
-                    ),
+                    "mc_score": stage_state.value.multiple_choice_responses.get(
+                        "ang_meas_consensus",
+                        MultipleChoiceResponse(tag="ang_meas_consensus"),
+                    ).model_dump(),
                     "score_tag": "ang_meas_consensus",
                 },
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineDotplotSeq3.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.dot_seq3),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.dot_seq3),
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineDotplotSeq4.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.dot_seq4),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.dot_seq4),
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineDotplotSeq4a.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.dot_seq4a),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.dot_seq4a),
                 event_mc_callback=lambda event: mc_callback(
-                    event, local_state, COMPONENT_STATE
+                    event, story_state, stage_state
                 ),
                 state_view={
-                    "mc_score": get_multiple_choice(
-                        local_state, COMPONENT_STATE, "ang_meas_dist_relation"
-                    ),
+                    "mc_score": stage_state.value.multiple_choice_responses.get(
+                        "ang_meas_dist_relation",
+                        MultipleChoiceResponse(tag="ang_meas_dist_relation"),
+                    ).model_dump(),
                     "score_tag": "ang_meas_dist_relation",
                 },
             )
             # the 2nd measurement
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineDotplotSeq5a.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.dot_seq5a),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.dot_seq5a),
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineDotplotSeq5c.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.dot_seq5c),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.dot_seq5c),
             )
             # Not doing the 2nd measurement #dot_seq6 is comparison of 1st and 2nd measurement
             # ScaffoldAlert(
@@ -1052,26 +1050,26 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
             with rv.Card(class_="pa-0 ma-0", elevation=0):
 
                 def set_angular_size_line(points):
-                    angular_size_line = Ref(COMPONENT_STATE.fields.angular_size_line)
+                    angular_size_line = Ref(stage_state.fields.angular_size_line)
                     if len(points.xs) > 0:
                         distance = points.xs[0]
                         angular_size = DISTANCE_CONSTANT / distance
                         angular_size_line.set(angular_size)
 
                 def set_distance_line(points):
-                    distance_line = Ref(COMPONENT_STATE.fields.distance_line)
+                    distance_line = Ref(stage_state.fields.distance_line)
                     if len(points.xs) > 0:
                         angular_size = points.xs[0]
                         distance = DISTANCE_CONSTANT / angular_size
                         distance_line.set(distance)
 
-                show_dotplot_lines = Ref(COMPONENT_STATE.fields.show_dotplot_lines)
-                if COMPONENT_STATE.value.current_step_at_or_after(Marker.dot_seq4a):
+                show_dotplot_lines = Ref(stage_state.fields.show_dotplot_lines)
+                if stage_state.value.current_step_at_or_after(Marker.dot_seq4a):
                     show_dotplot_lines.set(True)
                 else:
                     show_dotplot_lines.set(False)
 
-                if COMPONENT_STATE.value.current_step_between(
+                if stage_state.value.current_step_between(
                     Marker.dot_seq1, Marker.dot_seq5c
                 ):
                     # solara.Text(f"measurements setup: {measurements_setup.value}")
@@ -1084,7 +1082,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                         ignore = []
 
                         ignore = [gjapp.data_collection[EXAMPLE_GALAXY_MEASUREMENTS]]
-                        if COMPONENT_STATE.value.current_step < Marker.dot_seq5:
+                        if stage_state.value.current_step < Marker.dot_seq5:
                             second = subset_by_label(ignore[0], "second measurement")
                             if second is not None:
                                 ignore.append(second)
@@ -1101,7 +1099,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                         df2 = gjapp.data_collection[
                             EXAMPLE_GALAXY_MEASUREMENTS
                         ].to_dataframe()
-                        if COMPONENT_STATE.value.current_step < Marker.dot_seq5:
+                        if stage_state.value.current_step < Marker.dot_seq5:
                             df2 = df2[df2["measurement_number"] == "first"][
                                 "ang_size_value"
                             ].to_numpy()
@@ -1138,11 +1136,9 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                             component_id="est_dist_value",
                             vertical_line_visible=show_dotplot_lines.value,
                             on_vertical_line_visible_changed=show_dotplot_lines.set,
-                            line_marker_at=Ref(
-                                COMPONENT_STATE.fields.distance_line
-                            ).value,
+                            line_marker_at=Ref(stage_state.fields.distance_line).value,
                             on_line_marker_at_changed=Ref(
-                                COMPONENT_STATE.fields.distance_line
+                                stage_state.fields.distance_line
                             ).set,
                             line_marker_color=LIGHT_GENERIC_COLOR,
                             on_click_callback=set_angular_size_line,
@@ -1159,9 +1155,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                                 DISTANCE_CONSTANT / ang_min,
                             ],
                         )
-                        if COMPONENT_STATE.value.current_step_at_or_after(
-                            Marker.dot_seq4
-                        ):
+                        if stage_state.value.current_step_at_or_after(Marker.dot_seq4):
 
                             def angsize_bins(angmin, angmax):
                                 if angmin is None or angmax is None:
@@ -1181,10 +1175,10 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                                 vertical_line_visible=show_dotplot_lines.value,
                                 on_vertical_line_visible_changed=show_dotplot_lines.set,
                                 line_marker_at=Ref(
-                                    COMPONENT_STATE.fields.angular_size_line
+                                    stage_state.fields.angular_size_line
                                 ).value,
                                 on_line_marker_at_changed=Ref(
-                                    COMPONENT_STATE.fields.angular_size_line
+                                    stage_state.fields.angular_size_line
                                 ).set,
                                 line_marker_color=LIGHT_GENERIC_COLOR,
                                 on_click_callback=set_distance_line,

@@ -1,20 +1,27 @@
 import solara
 from solara import Reactive
 from solara.toestand import Ref
+from typing import cast
 
+from cds_core.base_states import MultipleChoiceResponse
 from cds_core.logger import setup_logger
 from cds_core.app_state import AppState
 from ...components import Stage2Slideshow, STAGE_2_SLIDESHOW_LENGTH
 from ...remote import LOCAL_API
-from ...story_state import LocalState, get_multiple_choice, mc_callback
+from ...story_state import StoryState, mc_callback
+from .stage_state import StageState
 from ...utils import get_image_path, DISTANCE_CONSTANT, push_to_route
 
 logger = setup_logger("STAGE 2")
 
 
 @solara.component
-def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
-    COMPONENT_STATE = Ref(local_state.fields.stage_states["distance_introduction"])
+def Page(app_state: Reactive[AppState]):
+    story_state = Ref(cast(StoryState, app_state.fields.story_state))
+    stage_state = Ref(
+        cast(StageState, story_state.fields.stage_states["distance_introduction"])
+    )
+
     loaded_component_state = solara.use_reactive(False)
     router = solara.use_router()
     location = solara.use_context(solara.routing._location_context)
@@ -22,7 +29,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
     def _load_component_state():
         # Load stored component state from database, measurement data is
         # considered higher-level and is loaded when the story starts
-        LOCAL_API.get_stage_state(global_state, local_state, COMPONENT_STATE)
+        LOCAL_API.get_stage_state(app_state, story_state, stage_state)
 
         # TODO: What else to we need to do here?
         logger.info("Finished loading component state for stage 2.")
@@ -35,7 +42,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
             return
 
         # Listen for changes in the states and write them to the database
-        res = LOCAL_API.put_stage_state(global_state, local_state, COMPONENT_STATE)
+        res = LOCAL_API.put_stage_state(app_state, story_state, stage_state)
 
         if res:
             logger.info("Wrote component state for stage 2 to database.")
@@ -43,17 +50,17 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
             logger.info("Did not write component state for stage 2 to database.")
 
     logger.info("Trying to write component state for stage 2.")
-    solara.lab.use_task(_write_component_state, dependencies=[COMPONENT_STATE.value])
+    solara.lab.use_task(_write_component_state, dependencies=[stage_state.value])
 
-    step = Ref(COMPONENT_STATE.fields.distance_slideshow_state.step)
+    step = Ref(stage_state.fields.distance_slideshow_state.step)
     max_step_completed = Ref(
-        COMPONENT_STATE.fields.distance_slideshow_state.max_step_completed
+        stage_state.fields.distance_slideshow_state.max_step_completed
     )
 
-    speech = Ref(global_state.fields.speech)
+    speech = Ref(app_state.fields.speech)
     Stage2Slideshow(
-        step=COMPONENT_STATE.value.distance_slideshow_state.step,
-        max_step_completed=COMPONENT_STATE.value.distance_slideshow_state.max_step_completed,
+        step=stage_state.value.distance_slideshow_state.step,
+        max_step_completed=stage_state.value.distance_slideshow_state.max_step_completed,
         length=STAGE_2_SLIDESHOW_LENGTH,
         titles=[
             "1920's Astronomy",
@@ -75,25 +82,25 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
         image_location=get_image_path(router, "stage_two_intro"),
         event_set_step=step.set,
         event_set_max_step_completed=max_step_completed.set,
-        event_mc_callback=lambda event: mc_callback(
-            event, local_state, COMPONENT_STATE
-        ),
+        event_mc_callback=lambda event: mc_callback(event, story_state, stage_state),
         state_view={
-            "mc_score_1": get_multiple_choice(
-                local_state, COMPONENT_STATE, "which-galaxy-closer"
-            ),
+            "mc_score_1": stage_state.value.multiple_choice_responses.get(
+                "which-galaxy-closer",
+                MultipleChoiceResponse(tag="which-galaxy-closer"),
+            ).model_dump(),
             "score_tag_1": "which-galaxy-closer",
-            "mc_score_2": get_multiple_choice(
-                local_state, COMPONENT_STATE, "how-much-closer-galaxies"
-            ),
+            "mc_score_2": stage_state.value.multiple_choice_responses.get(
+                "how-much-closer-galaxies",
+                MultipleChoiceResponse(tag="how-much-closer-galaxies"),
+            ).model_dump(),
             "score_tag_2": "how-much-closer-galaxies",
         },
         event_return_to_stage1=lambda _: push_to_route(
-            router, location, "01-spectra-&-velocity"
+            router, location, "spectra-&-velocity"
         ),
         event_slideshow_finished=lambda _: push_to_route(
-            router, location, "03-distance-measurements"
+            router, location, "distance-measurements"
         ),
-        debug=global_state.value.show_team_interface,
+        debug=app_state.value.show_team_interface,
         speech=speech.value.model_dump(),
     )

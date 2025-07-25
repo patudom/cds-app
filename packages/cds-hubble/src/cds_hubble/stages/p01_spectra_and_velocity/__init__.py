@@ -9,16 +9,18 @@ from glue_jupyter import JupyterApplication
 from solara import Reactive
 from solara.lab import computed
 from solara.toestand import Ref
+from typing import cast
 
 from cds_core.base_states import (
     transition_to,
     transition_previous,
     transition_next,
+    MultipleChoiceResponse,
 )
 from cds_core.components import ScaffoldAlert, StateEditor
 from cds_core.logger import setup_logger
 from cds_core.app_state import AppState
-from .component_state import Marker
+from .stage_state import Marker, StageState
 from ...components import (
     SelectionTool,
     DataTable,
@@ -52,9 +54,9 @@ from ...helpers.viewer_marker_colors import (
 )
 from ...remote import LOCAL_API
 from ...story_state import (
-    LocalState,
+    StoryState,
     StudentMeasurement,
-    get_multiple_choice,
+    # get_multiple_choice,
     mc_callback,
 )
 from ...utils import (
@@ -90,8 +92,11 @@ def nbin_func(xmin, xmax):
 
 
 @solara.component
-def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
-    COMPONENT_STATE = Ref(local_state.fields.stage_states["spectra_&_velocity"])
+def Page(app_state: Reactive[AppState]):
+    story_state = Ref(cast(StoryState, app_state.fields.story_state))
+    stage_state = Ref(
+        cast(StageState, story_state.fields.stage_states["spectra_&_velocity"])
+    )
 
     selection_tool_candidate_galaxy = solara.use_reactive(None)
 
@@ -101,7 +106,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
     seed_data_setup = solara.use_reactive(False)
 
     def glue_setup() -> JupyterApplication:
-        gjapp = _glue_setup(global_state, local_state)
+        gjapp = _glue_setup(app_state, story_state)
         if EXAMPLE_GALAXY_SEED_DATA not in gjapp.data_collection:
             logger.error(f"Missing {EXAMPLE_GALAXY_SEED_DATA} in glue data collection.")
         else:
@@ -114,7 +119,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
 
     def add_or_update_example_measurements_to_glue():
         if gjapp is not None:
-            _add_or_update_example_measurements_to_glue(local_state, gjapp)
+            _add_or_update_example_measurements_to_glue(story_state, gjapp)
             assert_example_measurements_in_glue(gjapp)
             example_data_setup.set(True)
 
@@ -122,107 +127,102 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
         # We want to minize duplicate state handling, but also keep the states
         #  independent. We'll set up observers for changes here so that they
         #  automatically keep the states in sync.
-        measurements = Ref(local_state.fields.measurements)
-        total_galaxies = Ref(COMPONENT_STATE.fields.total_galaxies)
+        measurements = Ref(story_state.fields.measurements)
+        total_galaxies = Ref(stage_state.fields.total_galaxies)
         measurements.subscribe_change(
             lambda *args: total_galaxies.set(len(measurements.value))
         )
 
-        example_measurements = Ref(local_state.fields.example_measurements)
+        example_measurements = Ref(story_state.fields.example_measurements)
 
         def _on_example_measurement_change(meas):
             # make sure the 2nd one is initialized
-            initialize_second_example_measurement(local_state)
+            initialize_second_example_measurement(story_state)
 
             # make sure it is in glue
             add_or_update_example_measurements_to_glue()
 
             # make sure it is in the seed data
-            _update_seed_data_with_examples(global_state, gjapp, meas)
+            _update_seed_data_with_examples(app_state, gjapp, meas)
 
         example_measurements.subscribe(_on_example_measurement_change)
 
         def _on_marker_updated(marker):
-            if COMPONENT_STATE.value.current_step.value >= Marker.rem_vel1.value:
+            if stage_state.value.current_step.value >= Marker.rem_vel1.value:
                 initialize_second_example_measurement(
-                    local_state
+                    story_state
                 )  # either set them to current or keep from DB
-            if COMPONENT_STATE.value.current_step_between(
-                Marker.mee_gui1, Marker.sel_gal4
-            ):
+            if stage_state.value.current_step_between(Marker.mee_gui1, Marker.sel_gal4):
                 selection_tool_bg_count.set(selection_tool_bg_count.value + 1)
 
-        Ref(COMPONENT_STATE.fields.current_step).subscribe(_on_marker_updated)
+        Ref(stage_state.fields.current_step).subscribe(_on_marker_updated)
 
     solara.use_memo(_state_callback_setup, dependencies=[])
 
     @computed
     def use_second_measurement():
-        return (
-            Ref(COMPONENT_STATE.fields.current_step).value.value
-            >= Marker.rem_vel1.value
-        )
+        return Ref(stage_state.fields.current_step).value.value >= Marker.rem_vel1.value
 
     @computed
     def selected_example_measurement():
-        return Ref(local_state.fields.get_example_measurement).value(
-            Ref(COMPONENT_STATE.fields.selected_example_galaxy).value,
+        return Ref(story_state.fields.get_example_measurement).value(
+            Ref(stage_state.fields.selected_example_galaxy).value,
             measurement_number="second" if use_second_measurement.value else "first",
         )
 
     @computed
     def selected_measurement():
-        return Ref(local_state.fields.get_measurement).value(
-            Ref(COMPONENT_STATE.fields.selected_galaxy).value
+        return Ref(story_state.fields.get_measurement).value(
+            Ref(stage_state.fields.selected_galaxy).value
         )
 
     def _init_glue_data_setup():
         logger.info("The glue data use effect")
-        if Ref(local_state.fields.measurements_loaded).value:
+        if Ref(story_state.fields.measurements_loaded).value:
             add_or_update_example_measurements_to_glue()
-            initialize_second_example_measurement(local_state)
+            initialize_second_example_measurement(story_state)
 
     solara.use_effect(
         _init_glue_data_setup,
-        dependencies=[Ref(local_state.fields.measurements_loaded).value],
+        dependencies=[Ref(story_state.fields.measurements_loaded).value],
     )
     selection_tool_bg_count = solara.use_reactive(0)
 
     def _fill_galaxies():
-        set_dummy_all_measurements(LOCAL_API, local_state, global_state)
+        set_dummy_all_measurements(LOCAL_API, story_state, app_state)
 
     def _fill_lambdas():
-        set_dummy_wavelength(LOCAL_API, local_state, global_state)
+        set_dummy_wavelength(LOCAL_API, story_state, app_state)
 
     def _fill_stage1_go_stage2():
-        set_dummy_wavelength_and_velocity(LOCAL_API, local_state, global_state)
-        push_to_route(router, location, f"02-distance-introduction")
+        set_dummy_wavelength_and_velocity(LOCAL_API, story_state, app_state)
+        push_to_route(router, location, f"distance-introduction")
 
     def _select_random_galaxies():
-        need = 5 - len(local_state.value.measurements)
+        need = 5 - len(story_state.value.measurements)
         if need <= 0:
             return
-        galaxies: list = LOCAL_API.get_galaxies(local_state)
+        galaxies: list = LOCAL_API.get_galaxies(story_state)
         sample = np.random.choice(galaxies, size=need, replace=False)
         new_measurements = [
-            StudentMeasurement(student_id=global_state.value.student.id, galaxy=galaxy)
+            StudentMeasurement(student_id=app_state.value.student.id, galaxy=galaxy)
             for galaxy in sample
         ]
-        measurements = local_state.value.measurements + new_measurements
-        Ref(local_state.fields.measurements).set(measurements)
+        measurements = story_state.value.measurements + new_measurements
+        Ref(story_state.fields.measurements).set(measurements)
 
     def _select_one_random_galaxy():
-        if len(local_state.value.measurements) >= 5:
+        if len(story_state.value.measurements) >= 5:
             return
         need = 1
-        galaxies = LOCAL_API.get_galaxies(local_state)
+        galaxies = LOCAL_API.get_galaxies(story_state)
         rng = np.random.default_rng()
         index = rng.integers(low=0, high=len(galaxies) - 1, size=need)[0]
         galaxy = galaxies[index]
         selection_tool_candidate_galaxy.set(galaxy.model_dump())
 
     def num_bad_velocities():
-        measurements = Ref(local_state.fields.measurements)
+        measurements = Ref(story_state.fields.measurements)
         num = 0
         for meas in measurements.value:
             if meas.obs_wave_value is None or meas.rest_wave_value is None:
@@ -234,14 +234,14 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                 num += 1
 
         has_multiple_bad_velocities = Ref(
-            COMPONENT_STATE.fields.has_multiple_bad_velocities
+            stage_state.fields.has_multiple_bad_velocities
         )
         has_multiple_bad_velocities.set(num > 1)
         return num
 
     def set_obs_wave_total():
-        obs_wave_total = Ref(COMPONENT_STATE.fields.obs_wave_total)
-        measurements = local_state.value.measurements
+        obs_wave_total = Ref(stage_state.fields.obs_wave_total)
+        measurements = story_state.value.measurements
         num = 0
         for meas in measurements:
             # print(meas)
@@ -250,12 +250,12 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
         obs_wave_total.set(num)
 
     def _initialize_state():
-        if COMPONENT_STATE.value.current_step.value == Marker.sel_gal2.value:
-            if COMPONENT_STATE.value.total_galaxies == 5:
-                transition_to(COMPONENT_STATE, Marker.sel_gal3, force=True)
+        if stage_state.value.current_step.value == Marker.sel_gal2.value:
+            if stage_state.value.total_galaxies == 5:
+                transition_to(stage_state, Marker.sel_gal3, force=True)
 
-        if COMPONENT_STATE.value.current_step.value > Marker.cho_row1.value:
-            COMPONENT_STATE.value.selected_example_galaxy = (
+        if stage_state.value.current_step.value > Marker.cho_row1.value:
+            stage_state.value.selected_example_galaxy = (
                 1576  # id of the first example galaxy
             )
 
@@ -277,15 +277,14 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
         if not example_data_setup.value:
             return False
         return (
-            Ref(COMPONENT_STATE.fields.current_step).value.value
-            >= Marker.dot_seq5.value
-            and Ref(COMPONENT_STATE.fields.dotplot_click_count).value > 0
+            Ref(stage_state.fields.current_step).value.value >= Marker.dot_seq5.value
+            and Ref(stage_state.fields.dotplot_click_count).value > 0
         )
 
     ## ----- Make sure we are initialized in the correct state ----- ##
     def sync_example_velocity_to_wavelength(velocity):
-        if len(local_state.value.example_measurements) > 0:
-            lambda_rest = local_state.value.example_measurements[0].rest_wave_value
+        if len(story_state.value.example_measurements) > 0:
+            lambda_rest = story_state.value.example_measurements[0].rest_wave_value
             lambda_obs = v2w(velocity, lambda_rest)
             logger.debug(
                 f"sync_example_velocity_to_wavelength {velocity:0.2f} -> {lambda_obs:0.2f}"
@@ -294,8 +293,8 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
         return None
 
     def sync_example_wavelength_to_velocity(wavelength):
-        if len(local_state.value.example_measurements) > 0:
-            lambda_rest = local_state.value.example_measurements[0].rest_wave_value
+        if len(story_state.value.example_measurements) > 0:
+            lambda_rest = story_state.value.example_measurements[0].rest_wave_value
             velocity = w2v(wavelength, lambda_rest)
             logger.debug(
                 f"sync_example_wavelength_to_velocity {wavelength:0.2f} -> {velocity:0.2f}"
@@ -304,22 +303,22 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
         return None
 
     def sync_spectrum_to_dotplot_range(value):
-        if len(local_state.value.example_measurements) > 0:
+        if len(story_state.value.example_measurements) > 0:
             logger.debug("Setting dotplot range from spectrum range")
-            lambda_rest = local_state.value.example_measurements[0].rest_wave_value
+            lambda_rest = story_state.value.example_measurements[0].rest_wave_value
             return [w2v(v, lambda_rest) for v in value]
         return None
 
     def sync_dotplot_to_spectrum_range(value):
-        if len(local_state.value.example_measurements) > 0:
+        if len(story_state.value.example_measurements) > 0:
             logger.debug("Setting spectrum range from dotplot range")
-            lambda_rest = local_state.value.example_measurements[0].rest_wave_value
+            lambda_rest = story_state.value.example_measurements[0].rest_wave_value
             return [v2w(v, lambda_rest) for v in value]
         return None
 
     def _reactive_subscription_setup():
-        Ref(COMPONENT_STATE.fields.selected_galaxy).subscribe(print_selected_galaxy)
-        Ref(COMPONENT_STATE.fields.selected_example_galaxy).subscribe(
+        Ref(stage_state.fields.selected_galaxy).subscribe(print_selected_galaxy)
+        Ref(stage_state.fields.selected_example_galaxy).subscribe(
             print_selected_example_galaxy
         )
 
@@ -333,26 +332,26 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
     solara.use_effect(_reactive_subscription_setup, dependencies=[])
 
     def dotplot_click_callback(point):
-        Ref(COMPONENT_STATE.fields.dotplot_click_count).set(
-            COMPONENT_STATE.value.dotplot_click_count + 1
+        Ref(stage_state.fields.dotplot_click_count).set(
+            stage_state.value.dotplot_click_count + 1
         )
         sync_velocity_line.set(point.xs[0])
         wavelength = sync_example_velocity_to_wavelength(point.xs[0])
         if wavelength:
             sync_wavelength_line.set(wavelength)
 
-    speech = Ref(global_state.fields.speech)
+    speech = Ref(app_state.fields.speech)
 
-    if global_state.value.show_team_interface:
+    if app_state.value.show_team_interface:
         with rv.Row():
             with solara.Column():
                 StateEditor(
                     Marker,
-                    COMPONENT_STATE,
-                    local_state,
-                    global_state,
+                    stage_state,
+                    story_state,
+                    app_state,
                     LOCAL_API,
-                    show_all=not global_state.value.educator,
+                    show_all=not app_state.value.educator,
                 )
             with solara.Column():
                 solara.Button(
@@ -371,61 +370,61 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineIntro.vue",
                 event_back_callback=lambda _: push_to_route(router, location, "/"),
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.mee_gui1),
+                event_next_callback=lambda _: transition_next(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.mee_gui1),
                 speech=speech.value,
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineSelectGalaxies1.vue",
                 # If at least 1 galaxy has already been selected, we want to go straight from here to sel_gal3.
                 event_next_callback=lambda _: transition_to(
-                    COMPONENT_STATE,
+                    stage_state,
                     (
                         Marker.sel_gal2
-                        if COMPONENT_STATE.value.total_galaxies == 0
+                        if stage_state.value.total_galaxies == 0
                         else Marker.sel_gal3
                     ),
                     force=True,
                 ),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.sel_gal1),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.sel_gal1),
                 speech=speech.value,
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineSelectGalaxies2.vue",
                 # I think we don't need this next callback because meeting the "next" criteria will autoadvance you to not_gal1 anyway, and then we skip over this guideline if we go backwards from sel_gal3. (But leave it just in case)
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.sel_gal2),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.sel_gal2),
                 state_view={
-                    "total_galaxies": COMPONENT_STATE.value.total_galaxies,
-                    "galaxy_is_selected": COMPONENT_STATE.value.galaxy_is_selected,
+                    "total_galaxies": stage_state.value.total_galaxies,
+                    "galaxy_is_selected": stage_state.value.galaxy_is_selected,
                 },
                 speech=speech.value,
             )
 
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineSelectGalaxies3.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
+                event_next_callback=lambda _: transition_next(stage_state),
                 # You can't get to this marker until at least 1 galaxy has been selected. Once a galaxy has been selected, sel_gal2 doesn't make sense, so jump back to sel_gal1.
                 event_back_callback=lambda _: transition_to(
-                    COMPONENT_STATE, Marker.sel_gal1, force=True
+                    stage_state, Marker.sel_gal1, force=True
                 ),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.sel_gal3),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.sel_gal3),
                 state_view={
-                    "total_galaxies": COMPONENT_STATE.value.total_galaxies,
-                    "galaxy_is_selected": COMPONENT_STATE.value.galaxy_is_selected,
+                    "total_galaxies": stage_state.value.total_galaxies,
+                    "galaxy_is_selected": stage_state.value.galaxy_is_selected,
                 },
                 speech=speech.value,
             )
 
-            if COMPONENT_STATE.value.is_current_step(
+            if stage_state.value.is_current_step(
                 Marker.sel_gal2
-            ) or COMPONENT_STATE.value.is_current_step(Marker.sel_gal3):
+            ) or stage_state.value.is_current_step(Marker.sel_gal3):
                 solara.Button(
                     label="Select a random galaxy",
                     on_click=_select_one_random_galaxy,
@@ -434,16 +433,16 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
 
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineSelectGalaxies4.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.sel_gal4),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.sel_gal4),
                 speech=speech.value,
             )
 
         with rv.Col(cols=12, lg=8):
 
-            show_snackbar = Ref(local_state.fields.show_snackbar)
+            show_snackbar = Ref(story_state.fields.show_snackbar)
 
             async def snackbar_off(value=None):
                 if show_snackbar.value:
@@ -455,19 +454,19 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
             def _galaxy_added_callback(galaxy_data: dict):
                 galaxy = next(
                     gal
-                    for gal in LOCAL_API.get_galaxies(local_state)
+                    for gal in LOCAL_API.get_galaxies(story_state)
                     if gal.id == int(galaxy_data["id"])
                 )
                 already_exists = galaxy.id in [
-                    x.galaxy_id for x in local_state.value.measurements
+                    x.galaxy_id for x in story_state.value.measurements
                 ]
 
                 if already_exists:
                     return
 
-                if len(local_state.value.measurements) == 5:
-                    show_snackbar = Ref(local_state.fields.show_snackbar)
-                    snackbar_message = Ref(local_state.fields.snackbar_message)
+                if len(story_state.value.measurements) == 5:
+                    show_snackbar = Ref(story_state.fields.show_snackbar)
+                    snackbar_message = Ref(story_state.fields.snackbar_message)
 
                     show_snackbar.set(True)
                     snackbar_message.set(
@@ -478,45 +477,45 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
 
                 logger.info("Adding galaxy `%s` to measurements.", galaxy.id)
 
-                measurements = Ref(local_state.fields.measurements)
+                measurements = Ref(story_state.fields.measurements)
 
                 measurements.set(
                     measurements.value
                     + [
                         StudentMeasurement(
-                            student_id=global_state.value.student.id,
+                            student_id=app_state.value.student.id,
                             galaxy=galaxy,
                         )
                     ]
                 )
 
-            total_galaxies = Ref(COMPONENT_STATE.fields.total_galaxies)
+            total_galaxies = Ref(stage_state.fields.total_galaxies)
 
             def advance_on_total_galaxies(value):
-                if COMPONENT_STATE.value.current_step == Marker.sel_gal2:
+                if stage_state.value.current_step == Marker.sel_gal2:
                     if value == 1:
-                        transition_to(COMPONENT_STATE, Marker.not_gal1)
+                        transition_to(stage_state, Marker.not_gal1)
 
             total_galaxies.subscribe(advance_on_total_galaxies)
 
             def _galaxy_selected_callback(galaxy_data: dict):
                 galaxy = next(
                     gal
-                    for gal in LOCAL_API.get_galaxies(local_state)
+                    for gal in LOCAL_API.get_galaxies(story_state)
                     if gal.id == int(galaxy_data["id"])
                 )
-                selected_galaxy = Ref(COMPONENT_STATE.fields.selected_galaxy)
+                selected_galaxy = Ref(stage_state.fields.selected_galaxy)
                 selected_galaxy.set(galaxy.id)
-                galaxy_is_selected = Ref(COMPONENT_STATE.fields.galaxy_is_selected)
+                galaxy_is_selected = Ref(stage_state.fields.galaxy_is_selected)
                 galaxy_is_selected.set(True)
 
             def _deselect_galaxy_callback():
-                selected_galaxy = Ref(COMPONENT_STATE.fields.selected_galaxy)
+                selected_galaxy = Ref(stage_state.fields.selected_galaxy)
                 selected_galaxy.set(None)
-                galaxy_is_selected = Ref(COMPONENT_STATE.fields.galaxy_is_selected)
+                galaxy_is_selected = Ref(stage_state.fields.galaxy_is_selected)
                 galaxy_is_selected.set(False)
 
-            show_example_data_table = COMPONENT_STATE.value.current_step_between(
+            show_example_data_table = stage_state.value.current_step_between(
                 Marker.cho_row1, Marker.rem_vel1
             )
             selection_tool_measurement = (
@@ -534,11 +533,11 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
             )
 
             def _on_wwt_ready_callback():
-                Ref(COMPONENT_STATE.fields.wwt_ready).set(True)
+                Ref(stage_state.fields.wwt_ready).set(True)
 
             SelectionTool(
-                local_state=local_state,
-                show_galaxies=COMPONENT_STATE.value.current_step_in(
+                local_state=story_state,
+                show_galaxies=stage_state.value.current_step_in(
                     [Marker.sel_gal2, Marker.not_gal1, Marker.sel_gal3]
                 ),
                 galaxy_selected_callback=_galaxy_selected_callback,
@@ -551,7 +550,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
             )
 
             if show_snackbar.value:
-                solara.Info(label=local_state.value.snackbar_message)
+                solara.Info(label=story_state.value.snackbar_message)
 
     # Measurement Table Row
 
@@ -559,29 +558,29 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
         with rv.Col(cols=12, lg=4):
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineNoticeGalaxyTable.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
+                event_next_callback=lambda _: transition_next(stage_state),
                 # You can't get to this marker until at least 1 galaxy has been selected. Once a galaxy has been selected, sel_gal2 doesn't make sense, so jump back to sel_gal1.
                 event_back_callback=lambda _: transition_to(
-                    COMPONENT_STATE, Marker.sel_gal1, force=True
+                    stage_state, Marker.sel_gal1, force=True
                 ),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.not_gal1),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.not_gal1),
                 speech=speech.value,
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineChooseRow.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.cho_row1),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.cho_row1),
                 speech=speech.value,
             )
 
             validation_4_failed = Ref(
-                COMPONENT_STATE.fields.doppler_state.validation_4_failed
+                stage_state.fields.doppler_state.validation_4_failed
             )
 
-            show_values = Ref(COMPONENT_STATE.fields.show_dop_cal4_values)
+            show_values = Ref(stage_state.fields.show_dop_cal4_values)
 
             def _on_validate_transition(validated):
                 logger.debug("Validated transition to dop_cal5: %s", validated)
@@ -591,21 +590,21 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                     return
 
                 if validated:
-                    transition_to(COMPONENT_STATE, Marker.dop_cal5)
+                    transition_to(stage_state, Marker.dop_cal5)
 
-                show_doppler_dialog = Ref(COMPONENT_STATE.fields.show_doppler_dialog)
+                show_doppler_dialog = Ref(stage_state.fields.show_doppler_dialog)
                 logger.debug("Setting show_doppler_dialog to %s", validated)
                 show_doppler_dialog.set(validated)
 
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineDopplerCalc4.vue",
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.current_step_in(
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.current_step_in(
                     [Marker.dop_cal4, Marker.dop_cal5]
                 ),
                 state_view={
-                    "lambda_obs": round(COMPONENT_STATE.value.obs_wave),
+                    "lambda_obs": round(stage_state.value.obs_wave),
                     "lambda_rest": (
                         selected_example_measurement.value.rest_wave_value
                         if selected_example_measurement.value is not None
@@ -619,31 +618,31 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
             )
 
             # This whole slideshow is basically dop_cal5
-            if COMPONENT_STATE.value.is_current_step(Marker.dop_cal5):
-                show_doppler_dialog = Ref(COMPONENT_STATE.fields.show_doppler_dialog)
-                step = Ref(COMPONENT_STATE.fields.doppler_state.step)
+            if stage_state.value.is_current_step(Marker.dop_cal5):
+                show_doppler_dialog = Ref(stage_state.fields.show_doppler_dialog)
+                step = Ref(stage_state.fields.doppler_state.step)
                 validation_5_failed = Ref(
-                    COMPONENT_STATE.fields.doppler_state.validation_5_failed
+                    stage_state.fields.doppler_state.validation_5_failed
                 )
                 max_step_completed_5 = Ref(
-                    COMPONENT_STATE.fields.doppler_state.max_step_completed_5
+                    stage_state.fields.doppler_state.max_step_completed_5
                 )
-                student_c = Ref(COMPONENT_STATE.fields.doppler_state.student_c)
+                student_c = Ref(stage_state.fields.doppler_state.student_c)
                 velocity_calculated = Ref(
-                    COMPONENT_STATE.fields.doppler_state.velocity_calculated
+                    stage_state.fields.doppler_state.velocity_calculated
                 )
 
                 def _velocity_calculated_callback(value):
                     example_measurement_index = (
-                        local_state.value.get_example_measurement_index(
-                            COMPONENT_STATE.value.selected_example_galaxy,
+                        story_state.value.get_example_measurement_index(
+                            stage_state.value.selected_example_galaxy,
                             measurement_number="first",
                         )
                     )
                     if example_measurement_index is None:
                         return
                     example_measurement = Ref(
-                        local_state.fields.example_measurements[
+                        story_state.fields.example_measurements[
                             example_measurement_index
                         ]
                     )
@@ -654,21 +653,21 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                     )
 
                 DopplerSlideshow(
-                    dialog=COMPONENT_STATE.value.show_doppler_dialog,
-                    titles=COMPONENT_STATE.value.doppler_state.titles,
-                    step=COMPONENT_STATE.value.doppler_state.step,
-                    length=COMPONENT_STATE.value.doppler_state.length,
-                    lambda_obs=round(COMPONENT_STATE.value.obs_wave),
+                    dialog=stage_state.value.show_doppler_dialog,
+                    titles=stage_state.value.doppler_state.titles,
+                    step=stage_state.value.doppler_state.step,
+                    length=stage_state.value.doppler_state.length,
+                    lambda_obs=round(stage_state.value.obs_wave),
                     lambda_rest=(
                         selected_example_measurement.value.rest_wave_value
                         if selected_example_measurement.value is not None
                         else None
                     ),
-                    max_step_completed_5=COMPONENT_STATE.value.doppler_state.max_step_completed_5,
-                    failed_validation_5=COMPONENT_STATE.value.doppler_state.validation_5_failed,
-                    interact_steps_5=COMPONENT_STATE.value.doppler_state.interact_steps_5,
-                    student_c=COMPONENT_STATE.value.doppler_state.student_c,
-                    student_vel_calc=COMPONENT_STATE.value.doppler_state.velocity_calculated,
+                    max_step_completed_5=stage_state.value.doppler_state.max_step_completed_5,
+                    failed_validation_5=stage_state.value.doppler_state.validation_5_failed,
+                    interact_steps_5=stage_state.value.doppler_state.interact_steps_5,
+                    student_c=stage_state.value.doppler_state.student_c,
+                    student_vel_calc=stage_state.value.doppler_state.velocity_calculated,
                     event_set_dialog=show_doppler_dialog.set,
                     event_set_step=step.set,
                     event_set_failed_validation_5=validation_5_failed.set,
@@ -676,27 +675,28 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                     event_set_student_vel_calc=velocity_calculated.set,
                     event_set_student_vel=_velocity_calculated_callback,
                     event_set_student_c=student_c.set,
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    event_next_callback=lambda _: transition_next(stage_state),
                     event_mc_callback=lambda event: mc_callback(
-                        event, local_state, COMPONENT_STATE
+                        event, story_state, stage_state
                     ),
                     state_view={
-                        "mc_score": get_multiple_choice(
-                            local_state, COMPONENT_STATE, "interpret-velocity"
-                        ),
+                        "mc_score": stage_state.value.multiple_choice_responses.get(
+                            "interpret-velocity",
+                            MultipleChoiceResponse(tag="interpret-velocity"),
+                        ).model_dump(),
                         "score_tag": "interpret-velocity",
                     },
-                    show_team_interface=global_state.value.show_team_interface,
+                    show_team_interface=app_state.value.show_team_interface,
                 )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineCheckMeasurement.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
+                event_next_callback=lambda _: transition_next(stage_state),
                 event_back_callback=lambda _: _on_validate_transition(
                     True
                 ),  # Send user back to dop_cal5 and open dialog
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.che_mea1),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.che_mea1),
                 speech=speech.value,
             )
             # Skip for now since we aren't offering 2nd measurement.
@@ -710,14 +710,14 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
             set_obs_wave_total()
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineRemainingGals.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.rem_gal1),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.rem_gal1),
                 state_view={
-                    "obswaves_total": COMPONENT_STATE.value.obs_wave_total,
-                    "has_bad_velocities": COMPONENT_STATE.value.has_bad_velocities,
-                    "has_multiple_bad_velocities": COMPONENT_STATE.value.has_multiple_bad_velocities,
+                    "obswaves_total": stage_state.value.obs_wave_total,
+                    "has_bad_velocities": stage_state.value.has_bad_velocities,
+                    "has_multiple_bad_velocities": stage_state.value.has_multiple_bad_velocities,
                     "selected_galaxy": (
                         selected_measurement.value.dict()
                         if selected_measurement.value is not None
@@ -726,8 +726,8 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                 },
                 speech=speech.value,
             )
-            if global_state.value.show_team_interface:
-                if COMPONENT_STATE.value.is_current_step(Marker.rem_gal1):
+            if app_state.value.show_team_interface:
+                if stage_state.value.is_current_step(Marker.rem_gal1):
                     solara.Button(
                         label="DEMO SHORTCUT: FILL λ MEASUREMENTS",
                         on_click=_fill_lambdas,
@@ -736,25 +736,26 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                     )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineDopplerCalc6.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.dop_cal6),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.dop_cal6),
                 speech=speech.value,
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineReflectVelValues.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
                 event_mc_callback=lambda event: mc_callback(
-                    event, local_state, COMPONENT_STATE
+                    event, story_state, stage_state
                 ),
-                show=COMPONENT_STATE.value.is_current_step(Marker.ref_vel1),
+                show=stage_state.value.is_current_step(Marker.ref_vel1),
                 state_view={
-                    "mc_score": get_multiple_choice(
-                        local_state, COMPONENT_STATE, "reflect_vel_value"
-                    ),
+                    "mc_score": stage_state.value.multiple_choice_responses.get(
+                        "reflect_vel_value",
+                        MultipleChoiceResponse(tag="reflect_vel_value"),
+                    ).model_dump(),
                     "score_tag": "reflect_vel_value",
                 },
                 speech=speech.value,
@@ -762,26 +763,26 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineEndStage1.vue",
                 event_next_callback=lambda _: push_to_route(
-                    router, location, "02-distance-introduction"
+                    router, location, "distance-introduction"
                 ),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.end_sta1),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.end_sta1),
                 state_view={
-                    "has_bad_velocities": COMPONENT_STATE.value.has_bad_velocities,
-                    "has_multiple_bad_velocities": COMPONENT_STATE.value.has_multiple_bad_velocities,
+                    "has_bad_velocities": stage_state.value.has_bad_velocities,
+                    "has_multiple_bad_velocities": stage_state.value.has_multiple_bad_velocities,
                 },
                 speech=speech.value,
             )
 
         with rv.Col(cols=12, lg=8):
-            show_example_data_table = COMPONENT_STATE.value.current_step_between(
+            show_example_data_table = stage_state.value.current_step_between(
                 Marker.cho_row1, Marker.rem_vel1
             )
 
             if show_example_data_table:
                 selected_example_galaxy = Ref(
-                    COMPONENT_STATE.fields.selected_example_galaxy
+                    stage_state.fields.selected_example_galaxy
                 )
 
                 @computed
@@ -789,19 +790,19 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                     if use_second_measurement.value:
                         return [
                             x.dict()
-                            for x in local_state.value.example_measurements
+                            for x in story_state.value.example_measurements
                             if x.measurement_number == "second"
                         ]
                     else:
                         return [
                             x.dict()
-                            for x in local_state.value.example_measurements
+                            for x in story_state.value.example_measurements
                             if x.measurement_number == "first"
                         ]
 
                 @computed
                 def selected_example_galaxy_index():
-                    index = local_state.value.get_example_measurement_index(
+                    index = story_state.value.get_example_measurement_index(
                         selected_example_galaxy.value,
                         measurement_number=(
                             "second" if use_second_measurement.value else "first"
@@ -816,10 +817,10 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                     flag = galaxy.get("value", True)
                     value = galaxy["item"]["galaxy_id"] if flag else None
                     selected_example_galaxy = Ref(
-                        COMPONENT_STATE.fields.selected_example_galaxy
+                        stage_state.fields.selected_example_galaxy
                     )
                     if value is not None:
-                        galaxy = local_state.value.get_example_measurement(
+                        galaxy = story_state.value.get_example_measurement(
                             value,
                             measurement_number=(
                                 "second" if use_second_measurement.value else "first"
@@ -867,27 +868,27 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                     headers=common_headers,
                     items=example_galaxy_data.value,
                     selected_indices=selected_example_galaxy_index.value,
-                    show_select=COMPONENT_STATE.value.current_step_at_or_after(
+                    show_select=stage_state.value.current_step_at_or_after(
                         Marker.cho_row1
                     ),
                     event_on_row_selected=update_example_galaxy,
                 )
             else:
-                selected_galaxy = Ref(COMPONENT_STATE.fields.selected_galaxy)
+                selected_galaxy = Ref(stage_state.fields.selected_galaxy)
 
                 def _on_table_row_selected(row):
-                    galaxy_measurement = local_state.value.get_measurement(
+                    galaxy_measurement = story_state.value.get_measurement(
                         row["item"]["galaxy_id"]
                     )
                     if galaxy_measurement is not None:
                         selected_galaxy.set(galaxy_measurement.galaxy_id)
 
-                    obs_wave = Ref(COMPONENT_STATE.fields.obs_wave)
+                    obs_wave = Ref(stage_state.fields.obs_wave)
                     obs_wave.set(0)
 
                 def _on_calculate_velocity():
-                    for i in range(len(local_state.value.measurements)):
-                        measurement = Ref(local_state.fields.measurements[i])
+                    for i in range(len(story_state.value.measurements)):
+                        measurement = Ref(story_state.fields.measurements[i])
                         velocity = round(
                             3e5
                             * (
@@ -902,12 +903,12 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                             )
                         )
 
-                        velocities_total = Ref(COMPONENT_STATE.fields.velocities_total)
+                        velocities_total = Ref(stage_state.fields.velocities_total)
                         velocities_total.set(velocities_total.value + 1)
 
                 @computed
                 def selected_galaxy_index():
-                    index = local_state.value.get_measurement_index(
+                    index = story_state.value.get_measurement_index(
                         selected_galaxy.value
                     )
                     if index is None:
@@ -917,28 +918,28 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
 
                 DataTable(
                     title="My Galaxies",
-                    items=[x.dict() for x in local_state.value.measurements],
+                    items=[x.dict() for x in story_state.value.measurements],
                     selected_indices=selected_galaxy_index.value,
-                    show_select=COMPONENT_STATE.value.current_step_at_or_after(
+                    show_select=stage_state.value.current_step_at_or_after(
                         Marker.cho_row1
                     ),
                     button_icon="mdi-run-fast",
                     button_tooltip="Calculate & Fill Velocities",
-                    show_button=COMPONENT_STATE.value.is_current_step(Marker.dop_cal6),
+                    show_button=stage_state.value.is_current_step(Marker.dop_cal6),
                     event_on_row_selected=_on_table_row_selected,
                     event_on_button_pressed=lambda _: _on_calculate_velocity(),
                 )
 
     # dot plot slideshow button row
 
-    if COMPONENT_STATE.value.current_step_between(Marker.int_dot1, Marker.rem_vel1):
+    if stage_state.value.current_step_between(Marker.int_dot1, Marker.rem_vel1):
         with rv.Row(class_="no-padding"):
             with rv.Col(cols=12, lg=4, class_="no-padding"):
                 pass
             with rv.Col(cols=12, lg=8, class_="no-padding"):
                 with rv.Col(cols=4, offset=4, class_="no-padding"):
                     dotplot_tutorial_finished = Ref(
-                        COMPONENT_STATE.fields.dotplot_tutorial_finished
+                        stage_state.fields.dotplot_tutorial_finished
                     )
 
                     tut_viewer_data = None
@@ -948,10 +949,10 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                         ]
                     # solara.Markdown(tut_viewer_data.to_dataframe().to_markdown())
                     DotplotTutorialSlideshow(
-                        dialog=COMPONENT_STATE.value.show_dotplot_tutorial_dialog,
-                        step=COMPONENT_STATE.value.dotplot_tutorial_state.step,
-                        length=COMPONENT_STATE.value.dotplot_tutorial_state.length,
-                        max_step_completed=COMPONENT_STATE.value.dotplot_tutorial_state.max_step_completed,
+                        dialog=stage_state.value.show_dotplot_tutorial_dialog,
+                        step=stage_state.value.dotplot_tutorial_state.step,
+                        length=stage_state.value.dotplot_tutorial_state.length,
+                        max_step_completed=stage_state.value.dotplot_tutorial_state.max_step_completed,
                         dotplot_viewer=DotplotViewer(
                             gjapp,
                             data=tut_viewer_data,
@@ -967,111 +968,110 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                             True
                         ),
                         event_show_dialog=lambda v: Ref(
-                            COMPONENT_STATE.fields.show_dotplot_tutorial_dialog
+                            stage_state.fields.show_dotplot_tutorial_dialog
                         ).set(v),
                         event_set_step=Ref(
-                            COMPONENT_STATE.fields.dotplot_tutorial_state.step
+                            stage_state.fields.dotplot_tutorial_state.step
                         ).set,
-                        show_team_interface=global_state.value.show_team_interface,
+                        show_team_interface=app_state.value.show_team_interface,
                     )
 
     # Dot Plot 1st measurement row
-    if COMPONENT_STATE.value.current_step_between(Marker.int_dot1, Marker.rem_vel1):
+    if stage_state.value.current_step_between(Marker.int_dot1, Marker.rem_vel1):
         with rv.Row(class_="no-y-padding"):
             with rv.Col(cols=12, lg=4, class_="no-y-padding"):
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineIntroDotplot.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.int_dot1),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.int_dot1),
                     speech=speech.value,
                     state_view={"color": MY_DATA_COLOR_NAME},
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineDotSequence01.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.dot_seq1),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.dot_seq1),
                     speech=speech.value,
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineDotSequence02.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.dot_seq2),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.dot_seq2),
                     speech=speech.value,
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineDotSequence03.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.dot_seq3),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.dot_seq3),
                     speech=speech.value,
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineDotSequence04a.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.dot_seq4a),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.dot_seq4a),
                     speech=speech.value,
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineDotSequence05.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.dot_seq5),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.dot_seq5),
                     speech=speech.value,
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineDotSequence06.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.dot_seq6),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.dot_seq6),
                     speech=speech.value,
                     event_zoom_to_range=lambda event: dotplot_bounds.set([9000, 13500]),
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineDotSequence07.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.dot_seq7),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.dot_seq7),
                     speech=speech.value,
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineDotSequence08.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
                     event_mc_callback=lambda event: mc_callback(
-                        event, local_state, COMPONENT_STATE
+                        event, story_state, stage_state
                     ),
                     event_zoom_to_range=lambda event: dotplot_bounds.set([9000, 13500]),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.dot_seq8),
+                    show=stage_state.value.is_current_step(Marker.dot_seq8),
                     state_view={
-                        "mc_score": get_multiple_choice(
-                            local_state, COMPONENT_STATE, "vel_meas_consensus"
-                        ),
+                        "mc_score": stage_state.value.multiple_choice_responses.get(
+                            "vel_meas_consensus",
+                            MultipleChoiceResponse(tag="vel_meas_consensus"),
+                        ).model_dump(),
                         "score_tag": "vel_meas_consensus",
                     },
                     speech=speech.value,
                 )
 
-            if COMPONENT_STATE.value.current_step_between(
-                Marker.int_dot1, Marker.rem_vel1
-            ):
+            if stage_state.value.current_step_between(Marker.int_dot1, Marker.rem_vel1):
                 with rv.Col(cols=12, lg=8, class_="no-y-padding"):
 
                     if (
                         EXAMPLE_GALAXY_MEASUREMENTS in gjapp.data_collection
-                        and len(local_state.value.example_measurements) > 0
+                        and len(story_state.value.example_measurements) > 0
                         and example_data_setup.value
                     ):
                         viewer_data = [
@@ -1081,7 +1081,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
 
                         ignore = [gjapp.data_collection[EXAMPLE_GALAXY_MEASUREMENTS]]
                         if (
-                            COMPONENT_STATE.value.current_step.value
+                            stage_state.value.current_step.value
                             != Marker.rem_vel1.value
                         ):
                             ignore += [
@@ -1126,20 +1126,20 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
 
     # Spectrum Viewer row
     if (
-        COMPONENT_STATE.value.current_step_between(Marker.mee_spe1, Marker.che_mea1)
-        or COMPONENT_STATE.value.current_step_between(Marker.dot_seq4, Marker.rem_vel1)
-        or COMPONENT_STATE.value.current_step_at_or_after(Marker.rem_gal1)
+        stage_state.value.current_step_between(Marker.mee_spe1, Marker.che_mea1)
+        or stage_state.value.current_step_between(Marker.dot_seq4, Marker.rem_vel1)
+        or stage_state.value.current_step_at_or_after(Marker.rem_gal1)
     ):
         with rv.Row():
             with rv.Col(cols=12, lg=4):
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineSpectrum.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.mee_spe1),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.mee_spe1),
                     state_view={
-                        "spectrum_tutorial_opened": COMPONENT_STATE.value.spectrum_tutorial_opened
+                        "spectrum_tutorial_opened": stage_state.value.spectrum_tutorial_opened
                     },
                     speech=speech.value,
                 )
@@ -1152,22 +1152,22 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
 
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineRestwave.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.res_wav1),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.res_wav1),
                     state_view={
                         "selected_example_galaxy": selected_example_galaxy_data,
-                        "lambda_on": COMPONENT_STATE.value.rest_wave_tool_activated,
+                        "lambda_on": stage_state.value.rest_wave_tool_activated,
                     },
                     speech=speech.value,
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineObswave1.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.obs_wav1),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.obs_wav1),
                     state_view={
                         "selected_example_galaxy": selected_example_galaxy_data
                     },
@@ -1175,39 +1175,39 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineObswave2.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.obs_wav2),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.obs_wav2),
                     state_view={
                         "selected_example_galaxy": selected_example_galaxy_data,
-                        "zoom_tool_activated": COMPONENT_STATE.value.zoom_tool_activated,
-                        "zoom_tool_active": COMPONENT_STATE.value.zoom_tool_active,
+                        "zoom_tool_activated": stage_state.value.zoom_tool_activated,
+                        "zoom_tool_active": stage_state.value.zoom_tool_active,
                     },
                     speech=speech.value,
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineDopplerCalc0.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.dop_cal0),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.dop_cal0),
                     speech=speech.value,
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineDopplerCalc2.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.dop_cal2),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.dop_cal2),
                     speech=speech.value,
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineDotSequence04.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.dot_seq4),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.dot_seq4),
                     speech=speech.value,
                     state_view={
                         "color": MY_DATA_COLOR_NAME,
@@ -1215,26 +1215,26 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineDotSequence10.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.dot_seq10),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.dot_seq10),
                     speech=speech.value,
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineDotSequence11.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.dot_seq11),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.dot_seq11),
                     speech=speech.value,
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineRemeasureVelocity.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.rem_vel1),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.rem_vel1),
                     speech=speech.value,
                 )
                 # ScaffoldAlert(
@@ -1247,21 +1247,21 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                 # )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineReflectOnData.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.ref_dat1),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.ref_dat1),
                     speech=speech.value,
                 )
 
             with rv.Col(cols=12, lg=8):
-                show_example_spectrum = COMPONENT_STATE.value.current_step_between(
+                show_example_spectrum = stage_state.value.current_step_between(
                     Marker.mee_spe1, Marker.che_mea1
-                ) or COMPONENT_STATE.value.current_step_between(
+                ) or stage_state.value.current_step_between(
                     Marker.dot_seq4, Marker.rem_vel1
                 )
 
-                show_galaxy_spectrum = COMPONENT_STATE.value.current_step_at_or_after(
+                show_galaxy_spectrum = stage_state.value.current_step_at_or_after(
                     Marker.rem_gal1
                 )
 
@@ -1269,8 +1269,8 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
 
                     def _example_wavelength_measured_callback(value):
                         example_measurement_index = (
-                            local_state.value.get_example_measurement_index(
-                                COMPONENT_STATE.value.selected_example_galaxy,
+                            story_state.value.get_example_measurement_index(
+                                stage_state.value.selected_example_galaxy,
                                 measurement_number=(
                                     "second"
                                     if use_second_measurement.value
@@ -1281,14 +1281,14 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                         if example_measurement_index is None:
                             return
 
-                        example_measurements = local_state.value.example_measurements
+                        example_measurements = story_state.value.example_measurements
                         example_measurement = Ref(
-                            local_state.fields.example_measurements[
+                            story_state.fields.example_measurements[
                                 example_measurement_index
                             ]
                         )
 
-                        obs_wave = Ref(COMPONENT_STATE.fields.obs_wave)
+                        obs_wave = Ref(stage_state.fields.obs_wave)
                         obs_wave.set(value)
 
                         if example_measurement.value.velocity_value is None:
@@ -1322,20 +1322,18 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                             logger.debug(f"Setting velocity {velocity: 0.2f} ")
                             sync_velocity_line.set(velocity)
 
-                    obs_wave_tool_used = Ref(COMPONENT_STATE.fields.obs_wave_tool_used)
+                    obs_wave_tool_used = Ref(stage_state.fields.obs_wave_tool_used)
                     rest_wave_tool_activated = Ref(
-                        COMPONENT_STATE.fields.rest_wave_tool_activated
+                        stage_state.fields.rest_wave_tool_activated
                     )
-                    zoom_tool_activated = Ref(
-                        COMPONENT_STATE.fields.zoom_tool_activated
-                    )
-                    zoom_tool_active = Ref(COMPONENT_STATE.fields.zoom_tool_active)
+                    zoom_tool_activated = Ref(stage_state.fields.zoom_tool_activated)
+                    zoom_tool_active = Ref(stage_state.fields.zoom_tool_active)
 
                     @computed
                     def obs_wav_marker_value():
-                        meas = local_state.value.example_measurements
-                        if local_state.value.measurements_loaded and len(meas) > 0:
-                            step = COMPONENT_STATE.value.current_step.value
+                        meas = story_state.value.example_measurements
+                        if story_state.value.measurements_loaded and len(meas) > 0:
+                            step = stage_state.value.current_step.value
                             if (
                                 step >= Marker.rem_vel1.value
                                 and meas[1].obs_wave_value is not None
@@ -1346,7 +1344,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                                 and meas[0].velocity_value is not None
                             ):
                                 return meas[0].obs_wave_value
-                        return COMPONENT_STATE.value.obs_wave
+                        return stage_state.value.obs_wave
 
                     def _on_zoom():
                         zoom_tool_activated.set(True)
@@ -1363,10 +1361,10 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                         ),
                         obs_wave=obs_wav_marker_value.value,  # COMPONENT_STATE.value.obs_wave if COMPONENT_STATE.value.current_step < Marker.dot_seq1 else E,
                         spectrum_click_enabled=(
-                            COMPONENT_STATE.value.current_step_between(
+                            stage_state.value.current_step_between(
                                 Marker.obs_wav1, Marker.obs_wav2
                             )
-                            or COMPONENT_STATE.value.current_step.value
+                            or stage_state.value.current_step.value
                             == Marker.rem_vel1.value
                         ),
                         on_obs_wave_measured=_example_wavelength_measured_callback,
@@ -1379,24 +1377,23 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                             sync_wavelength_line if show_synced_lines.value else None
                         ),
                         spectrum_bounds=spectrum_bounds,  # type: ignore
-                        show_obs_wave_line=COMPONENT_STATE.value.current_step_at_or_after(
+                        show_obs_wave_line=stage_state.value.current_step_at_or_after(
                             Marker.dot_seq4
                         ),
                         on_set_marker_position=_on_set_marker_location,
+                        local_state=story_state,
                     )
 
                 elif show_galaxy_spectrum:
 
                     def _wavelength_measured_callback(value):
-                        measurement_index = local_state.value.get_measurement_index(
-                            COMPONENT_STATE.value.selected_galaxy
+                        measurement_index = story_state.value.get_measurement_index(
+                            stage_state.value.selected_galaxy
                         )
                         if measurement_index is None:
                             return
 
-                        has_bad_velocities = Ref(
-                            COMPONENT_STATE.fields.has_bad_velocities
-                        )
+                        has_bad_velocities = Ref(stage_state.fields.has_bad_velocities)
                         is_bad = is_wavelength_poorly_measured(
                             value,
                             selected_measurement.value.rest_wave_value,
@@ -1407,11 +1404,11 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
 
                         if not is_bad:
 
-                            obs_wave = Ref(COMPONENT_STATE.fields.obs_wave)
+                            obs_wave = Ref(stage_state.fields.obs_wave)
                             obs_wave.set(value)
 
                             measurement = Ref(
-                                local_state.fields.measurements[measurement_index]
+                                story_state.fields.measurements[measurement_index]
                             )
 
                             if measurement.value.velocity_value is None:
@@ -1439,7 +1436,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                         else:
                             logger.info("Wavelength measurement is bad")
 
-                    if COMPONENT_STATE.value.has_bad_velocities:
+                    if stage_state.value.has_bad_velocities:
                         rv.Alert(
                             elevation=2,
                             icon="mdi-alert-circle-outline",
@@ -1457,19 +1454,20 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                             if selected_measurement.value is not None
                             else None
                         ),
-                        obs_wave=COMPONENT_STATE.value.obs_wave,
-                        spectrum_click_enabled=COMPONENT_STATE.value.current_step_at_or_after(
+                        obs_wave=stage_state.value.obs_wave,
+                        spectrum_click_enabled=stage_state.value.current_step_at_or_after(
                             Marker.obs_wav1
                         ),
                         on_obs_wave_measured=_wavelength_measured_callback,
+                        local_state=story_state,
                     )
-                if COMPONENT_STATE.value.current_step_between(
+                if stage_state.value.current_step_between(
                     Marker.mee_spe1, Marker.rem_gal1
                 ):  # center single button
                     with rv.Row():
                         with rv.Col(cols=4, offset=4):
                             spectrum_tutorial_opened = Ref(
-                                COMPONENT_STATE.fields.spectrum_tutorial_opened
+                                stage_state.fields.spectrum_tutorial_opened
                             )
                             SpectrumSlideshow(
                                 event_dialog_opened_callback=lambda _: spectrum_tutorial_opened.set(
@@ -1478,10 +1476,10 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                                 image_location=get_image_path(
                                     router, "stage_one_spectrum"
                                 ),
-                                show_team_interface=global_state.value.show_team_interface,
+                                show_team_interface=app_state.value.show_team_interface,
                             )
 
-                if COMPONENT_STATE.value.current_step_at_or_after(
+                if stage_state.value.current_step_at_or_after(
                     Marker.ref_dat1
                 ):  # space 2 buttons nicely
                     with rv.Row():
@@ -1490,20 +1488,20 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                                 image_location=get_image_path(
                                     router, "stage_one_spectrum"
                                 ),
-                                show_team_interface=global_state.value.show_team_interface,
+                                show_team_interface=app_state.value.show_team_interface,
                             )
                         with rv.Col(cols=4):
                             show_reflection_dialog = Ref(
-                                COMPONENT_STATE.fields.show_reflection_dialog
+                                stage_state.fields.show_reflection_dialog
                             )
                             reflect_step = Ref(
-                                COMPONENT_STATE.fields.velocity_reflection_state.step
+                                stage_state.fields.velocity_reflection_state.step
                             )
                             reflect_max_step_completed = Ref(
-                                COMPONENT_STATE.fields.velocity_reflection_state.max_step_completed
+                                stage_state.fields.velocity_reflection_state.max_step_completed
                             )
                             reflection_complete = Ref(
-                                COMPONENT_STATE.fields.reflection_complete
+                                stage_state.fields.reflection_complete
                             )
 
                             ReflectVelocitySlideshow(
@@ -1520,41 +1518,46 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                                 ],
                                 interact_steps=[2, 3, 4, 5, 6],
                                 require_responses=True,
-                                dialog=COMPONENT_STATE.value.show_reflection_dialog,
-                                step=COMPONENT_STATE.value.velocity_reflection_state.step,
-                                max_step_completed=COMPONENT_STATE.value.velocity_reflection_state.max_step_completed,
-                                reflection_complete=COMPONENT_STATE.value.reflection_complete,
+                                dialog=stage_state.value.show_reflection_dialog,
+                                step=stage_state.value.velocity_reflection_state.step,
+                                max_step_completed=stage_state.value.velocity_reflection_state.max_step_completed,
+                                reflection_complete=stage_state.value.reflection_complete,
                                 state_view={
-                                    "mc_score_2": get_multiple_choice(
-                                        local_state,
-                                        COMPONENT_STATE,
+                                    "mc_score_2": stage_state.value.multiple_choice_responses.get(
                                         "wavelength-comparison",
-                                    ),
+                                        MultipleChoiceResponse(
+                                            tag="wavelength-comparison"
+                                        ),
+                                    ).model_dump(),
                                     "score_tag_2": "wavelength-comparison",
-                                    "mc_score_3": get_multiple_choice(
-                                        local_state, COMPONENT_STATE, "galaxy-motion"
-                                    ),
+                                    "mc_score_3": stage_state.value.multiple_choice_responses.get(
+                                        "galaxy-motion",
+                                        MultipleChoiceResponse(tag="galaxy-motion"),
+                                    ).model_dump(),
                                     "score_tag_3": "galaxy-motion",
-                                    "mc_score_4": get_multiple_choice(
-                                        local_state,
-                                        COMPONENT_STATE,
+                                    "mc_score_4": stage_state.value.multiple_choice_responses.get(
                                         "steady-state-consistent",
-                                    ),
+                                        MultipleChoiceResponse(
+                                            tag="steady-state-consistent"
+                                        ),
+                                    ).model_dump(),
                                     "score_tag_4": "steady-state-consistent",
-                                    "mc_score_5": get_multiple_choice(
-                                        local_state,
-                                        COMPONENT_STATE,
+                                    "mc_score_5": stage_state.value.multiple_choice_responses.get(
                                         "moving-randomly-consistent",
-                                    ),
+                                        MultipleChoiceResponse(
+                                            tag="moving-randomly-consistent"
+                                        ),
+                                    ).model_dump(),
                                     "score_tag_5": "moving-randomly-consistent",
-                                    "mc_score_6": get_multiple_choice(
-                                        local_state, COMPONENT_STATE, "peers-data-agree"
-                                    ),
+                                    "mc_score_6": stage_state.value.multiple_choice_responses.get(
+                                        "peers-data-agree",
+                                        MultipleChoiceResponse(tag="peers-data-agree"),
+                                    ).model_dump(),
                                     "score_tag_6": "peers-data-agree",
                                 },
                                 event_set_dialog=show_reflection_dialog.set,
                                 event_mc_callback=lambda event: mc_callback(
-                                    event, local_state, COMPONENT_STATE
+                                    event, story_state, stage_state
                                 ),
                                 # These are numbered based on window-item value
                                 event_set_step=reflect_step.set,
@@ -1562,5 +1565,5 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                                 event_on_reflection_complete=lambda _: reflection_complete.set(
                                     True
                                 ),
-                                show_team_interface=global_state.value.show_team_interface,
+                                show_team_interface=app_state.value.show_team_interface,
                             )

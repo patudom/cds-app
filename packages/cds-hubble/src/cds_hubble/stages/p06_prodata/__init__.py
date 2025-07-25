@@ -13,12 +13,14 @@ from solara.toestand import Ref
 from cds_core.base_states import (
     transition_previous,
     transition_next,
+    MultipleChoiceResponse,
+    FreeResponse,
 )
 from cds_core.components import ScaffoldAlert, LayerToggle, StateEditor, ViewerLayout
 from cds_core.logger import setup_logger
 from cds_core.app_state import AppState
 from cds_core.utils import show_legend, show_layer_traces_in_legend
-from .component_state import Marker
+from .stage_state import Marker, StageState
 from ...helpers.data_management import HUBBLE_1929_DATA_LABEL, HUBBLE_KEY_DATA_LABEL
 from ...helpers.viewer_marker_colors import (
     MY_CLASS_COLOR,
@@ -30,11 +32,9 @@ from ...helpers.viewer_marker_colors import (
 )
 from ...remote import LOCAL_API
 from ...story_state import (
-    LocalState,
+    StoryState,
     mc_callback,
     fr_callback,
-    get_free_response,
-    get_multiple_choice,
 )
 from ...utils import (
     HST_KEY_AGE,
@@ -61,8 +61,11 @@ def basic_viewer_setup(viewer_class, glue_session, data_collection, name, x_att,
 
 # create the Page for the current stage
 @solara.component
-def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
-    COMPONENT_STATE = Ref(local_state.fields.stage_states["professional_data"])
+def Page(app_state: Reactive[AppState]):
+    story_state = Ref(cast(StoryState, app_state.fields.story_state))
+    stage_state = Ref(
+        cast(StageState, story_state.fields.stage_states["professional_data"])
+    )
 
     router = solara.use_router()
     location = solara.use_context(solara.routing._location_context)
@@ -75,7 +78,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
         if not value:
             return
 
-        class_age = Ref(COMPONENT_STATE.fields.class_age)
+        class_age = Ref(stage_state.fields.class_age)
 
         data = gjapp.data_collection["Class Data"]
         vel = data["velocity_value"]
@@ -94,7 +97,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
         # NOTE: use_memo has to be part of the main page render. Including it
         #  in a conditional will result in an error.
         gjapp = JupyterApplication(
-            global_state.value.glue_data_collection, global_state.value.glue_session
+            app_state.value.glue_data_collection, app_state.value.glue_session
         )
 
         def add_link(from_dc_name, from_att, to_dc_name, to_att):
@@ -112,12 +115,12 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                 load_data(data_dir / f"{HUBBLE_1929_DATA_LABEL}.csv")
             )
 
-        if len(local_state.value.class_measurements) == 0:
+        if len(story_state.value.class_measurements) == 0:
             class_measurements = LOCAL_API.get_class_measurements(
-                global_state, local_state
+                app_state, story_state
             )
-            measurements = Ref(local_state.fields.class_measurements)
-            student_ids = Ref(local_state.fields.stage_5_class_data_students)
+            measurements = Ref(story_state.fields.class_measurements)
+            student_ids = Ref(story_state.fields.stage_5_class_data_students)
             if class_measurements and not student_ids.value:
                 ids = list(np.unique([m.student_id for m in class_measurements]))
                 student_ids.set(ids)
@@ -125,9 +128,9 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
 
         if "Class Data" not in gjapp.data_collection:
             class_data = models_to_glue_data(
-                local_state.value.class_measurements, label="Class Data"
+                story_state.value.class_measurements, label="Class Data"
             )
-            class_data = global_state.value.add_or_update_data(class_data)
+            class_data = app_state.value.add_or_update_data(class_data)
 
         add_link(
             HUBBLE_1929_DATA_LABEL,
@@ -175,7 +178,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
         tool = viewer.toolbar.tools["hubble:linefit"]
         if show != tool.active:
             tool.activate()
-        Ref(COMPONENT_STATE.fields.fit_line_shown).set(tool.active)
+        Ref(stage_state.fields.fit_line_shown).set(tool.active)
 
     def add_class_data(viewer):
         data = gjapp.data_collection["Class Data"]
@@ -261,25 +264,25 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
     def display_fit_legend(marker):
         show_legend(viewer, show=marker >= Marker.pro_dat8)
 
-    current_step = Ref(COMPONENT_STATE.fields.current_step)
+    current_step = Ref(stage_state.fields.current_step)
     current_step.subscribe(lambda step: add_data_by_marker(viewer, step))
     add_data_by_marker(viewer, current_step.value)
 
     show_layer_traces_in_legend(viewer)
 
     current_step.subscribe(display_fit_legend)
-    display_fit_legend(COMPONENT_STATE.value.current_step)
+    display_fit_legend(stage_state.value.current_step)
 
     solara.use_effect(lambda: show_fit_line(True), dependencies=[])
 
-    if global_state.value.show_team_interface:
+    if app_state.value.show_team_interface:
         StateEditor(
             Marker,
-            COMPONENT_STATE,
-            local_state,
-            global_state,
+            stage_state,
+            story_state,
+            app_state,
             LOCAL_API,
-            show_all=not global_state.value.educator,
+            show_all=not app_state.value.educator,
         )
 
     with solara.ColumnsResponsive(12, large=[4, 8]):
@@ -287,25 +290,26 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineProfessionalData0.vue",
                 event_back_callback=lambda _: push_to_route(
-                    router, location, "05-class-results-uncertainty"
+                    router, location, "class-results-uncertainty"
                 ),
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.pro_dat0),
+                event_next_callback=lambda _: transition_next(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.pro_dat0),
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineProfessionalData1.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.pro_dat1),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.pro_dat1),
                 event_mc_callback=lambda event: mc_callback(
-                    event, local_state, COMPONENT_STATE
+                    event, story_state, stage_state
                 ),
                 state_view={
-                    "mc_score": get_multiple_choice(
-                        local_state, COMPONENT_STATE, "pro-dat1"
-                    ),
+                    "mc_score": stage_state.value.multiple_choice_responses.get(
+                        "pro-dat1",
+                        MultipleChoiceResponse(tag="pro-dat1"),
+                    ).model_dump(),
                     "score_tag": "pro-dat1",
                     "class_color": MY_CLASS_COLOR_NAME,
                     "hubble1929_color": HUBBLE_1929_COLOR_NAME,
@@ -313,17 +317,18 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineProfessionalData2.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.pro_dat2),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.pro_dat2),
                 event_mc_callback=lambda event: mc_callback(
-                    event, local_state, COMPONENT_STATE
+                    event, story_state, stage_state
                 ),
                 state_view={
-                    "mc_score": get_multiple_choice(
-                        local_state, COMPONENT_STATE, "pro-dat2"
-                    ),
+                    "mc_score": stage_state.value.multiple_choice_responses.get(
+                        "pro-dat2",
+                        MultipleChoiceResponse(tag="pro-dat2"),
+                    ).model_dump(),
                     "score_tag": "pro-dat2",
                 },
             )
@@ -338,144 +343,153 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
             # )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineProfessionalData4.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.pro_dat4),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.pro_dat4),
                 event_mc_callback=lambda event: mc_callback(
-                    event, local_state, COMPONENT_STATE
+                    event, story_state, stage_state
                 ),
                 event_fr_callback=lambda event: fr_callback(
                     event,
-                    local_state,
-                    COMPONENT_STATE,
-                    lambda: LOCAL_API.put_story_state(global_state, local_state),
+                    story_state,
+                    stage_state,
+                    lambda: LOCAL_API.put_story_state(app_state, story_state),
                 ),
                 state_view={
-                    "mc_score": get_multiple_choice(
-                        local_state, COMPONENT_STATE, "pro-dat4"
-                    ),
+                    "mc_score": stage_state.value.multiple_choice_responses.get(
+                        "pro-dat4",
+                        MultipleChoiceResponse(tag="pro-dat4"),
+                    ).model_dump(),
                     "score_tag": "pro-dat4",
-                    "free_response": get_free_response(
-                        local_state, COMPONENT_STATE, "prodata-free-4"
-                    ),
-                    "mc_completed": local_state.value.question_completed("pro-dat4"),
+                    "free_response": stage_state.value.free_responses.get(
+                        "prodata-free-4",
+                        FreeResponse(tag="prodata-free-4"),
+                    ).model_dump(),
+                    "mc_completed": stage_state.value.has_response("pro-dat4"),
                 },
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineProfessionalData5.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.pro_dat5),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.pro_dat5),
                 state_view={"hst_key_color": HST_KEY_COLOR_NAME},
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineProfessionalData6.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.pro_dat6),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.pro_dat6),
                 event_mc_callback=lambda event: mc_callback(
-                    event, local_state, COMPONENT_STATE
+                    event, story_state, stage_state
                 ),
                 state_view={
                     "hst_age": HST_KEY_AGE,
-                    "class_age": COMPONENT_STATE.value.class_age,
-                    "ages_within": COMPONENT_STATE.value.ages_within,
-                    "allow_too_close_correct": COMPONENT_STATE.value.allow_too_close_correct,
-                    "mc_score": get_multiple_choice(
-                        local_state, COMPONENT_STATE, "pro-dat6"
-                    ),
+                    "class_age": stage_state.value.class_age,
+                    "ages_within": stage_state.value.ages_within,
+                    "allow_too_close_correct": stage_state.value.allow_too_close_correct,
+                    "mc_score": stage_state.value.multiple_choice_responses.get(
+                        "pro-dat6",
+                        MultipleChoiceResponse(tag="pro-dat6"),
+                    ).model_dump(),
                     "score_tag": "pro-dat6",
                 },
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineProfessionalData7.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.pro_dat7),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.pro_dat7),
                 event_mc_callback=lambda event: mc_callback(
-                    event, local_state, COMPONENT_STATE
+                    event, story_state, stage_state
                 ),
                 event_fr_callback=lambda event: fr_callback(
                     event,
-                    local_state,
-                    COMPONENT_STATE,
-                    lambda: LOCAL_API.put_story_state(global_state, local_state),
+                    story_state,
+                    stage_state,
+                    lambda: LOCAL_API.put_story_state(app_state, story_state),
                 ),
                 state_view={
-                    "mc_score": get_multiple_choice(
-                        local_state, COMPONENT_STATE, "pro-dat7"
-                    ),
+                    "mc_score": stage_state.value.multiple_choice_responses.get(
+                        "pro-dat7",
+                        MultipleChoiceResponse(tag="pro-dat7"),
+                    ).model_dump(),
                     "score_tag": "pro-dat7",
-                    "free_response": get_free_response(
-                        local_state, COMPONENT_STATE, "prodata-free-7"
-                    ),
-                    "mc_completed": local_state.value.question_completed("pro-dat7"),
+                    "free_response": stage_state.value.free_responses.get(
+                        "prodata-free-7",
+                        FreeResponse(tag="prodata-free-7"),
+                    ).model_dump(),
+                    "mc_completed": stage_state.value.has_response("pro-dat7"),
                 },
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineProfessionalData8.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.pro_dat8),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.pro_dat8),
                 event_fr_callback=lambda event: fr_callback(
                     event,
-                    local_state,
-                    COMPONENT_STATE,
-                    lambda: LOCAL_API.put_story_state(global_state, local_state),
+                    story_state,
+                    stage_state,
+                    lambda: LOCAL_API.put_story_state(app_state, story_state),
                 ),
                 state_view={
-                    "free_response_a": get_free_response(
-                        local_state, COMPONENT_STATE, "prodata-reflect-8a"
-                    ),
-                    "free_response_b": get_free_response(
-                        local_state, COMPONENT_STATE, "prodata-reflect-8b"
-                    ),
-                    "free_response_c": get_free_response(
-                        local_state, COMPONENT_STATE, "prodata-reflect-8c"
-                    ),
+                    "free_response_a": stage_state.value.free_responses.get(
+                        "prodata-reflect-8a",
+                        FreeResponse(tag="prodata-reflect-8a"),
+                    ).model_dump(),
+                    "free_response_b": stage_state.value.free_responses.get(
+                        "prodata-reflect-8b",
+                        FreeResponse(tag="prodata-reflect-8b"),
+                    ).model_dump(),
+                    "free_response_c": stage_state.value.free_responses.get(
+                        "prodata-reflect-8c",
+                        FreeResponse(tag="prodata-reflect-8c"),
+                    ).model_dump(),
                 },
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineProfessionalData9.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.pro_dat9),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.pro_dat9),
                 event_mc_callback=lambda event: mc_callback(
-                    event, local_state, COMPONENT_STATE
+                    event, story_state, stage_state
                 ),
                 state_view={
-                    "mc_score": get_multiple_choice(
-                        local_state, COMPONENT_STATE, "pro-dat9"
-                    ),
+                    "mc_score": stage_state.value.multiple_choice_responses.get(
+                        "pro-dat9",
+                        MultipleChoiceResponse(tag="pro-dat9"),
+                    ).model_dump(),
                     "score_tag": "pro-dat9",
                 },
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineStoryFinish.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.sto_fin1),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.sto_fin1),
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineStoryFinish2.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.sto_fin2),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.sto_fin2),
             )
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineStoryFinish3.vue",
-                event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                show=COMPONENT_STATE.value.is_current_step(Marker.sto_fin3),
+                event_next_callback=lambda _: transition_next(stage_state),
+                event_back_callback=lambda _: transition_previous(stage_state),
+                can_advance=stage_state.value.can_transition(next=True),
+                show=stage_state.value.is_current_step(Marker.sto_fin3),
             )
 
         with rv.Col(class_="no-padding"):

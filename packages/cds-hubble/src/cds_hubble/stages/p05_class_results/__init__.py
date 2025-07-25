@@ -1,7 +1,7 @@
 from contextlib import ExitStack
 from functools import partial
 from pathlib import Path
-from typing import Dict, Iterable, Optional, Tuple
+from typing import Dict, Iterable, Optional, Tuple, cast
 
 import numpy as np
 import reacton.ipyvuetify as rv
@@ -15,7 +15,12 @@ from glue_plotly.viewers import PlotlyBaseView
 from solara import Reactive
 from solara.toestand import Ref
 
-from cds_core.base_states import transition_next, transition_previous
+from cds_core.base_states import (
+    transition_next,
+    transition_previous,
+    MultipleChoiceResponse,
+    FreeResponse,
+)
 from cds_core.components import (
     LayerToggle,
     PercentageSelector,
@@ -32,7 +37,7 @@ from cds_core.utils import (
     show_layer_traces_in_legend,
 )
 from cds_core.viewers import CDSHistogramView
-from .component_state import Marker
+from .stage_state import Marker, StageState
 from ...components import UncertaintySlideshow, IdSlider
 from ...helpers.demo_helpers import set_dummy_all_measurements
 from ...helpers.viewer_marker_colors import (
@@ -47,12 +52,10 @@ from ...helpers.viewer_marker_colors import (
 )
 from ...remote import LOCAL_API
 from ...story_state import (
-    LocalState,
+    StoryState,
     ClassSummary,
     StudentMeasurement,
     StudentSummary,
-    get_free_response,
-    get_multiple_choice,
     mc_callback,
     fr_callback,
 )
@@ -74,8 +77,11 @@ GUIDELINE_ROOT = Path(__file__).parent / "guidelines"
 
 
 @solara.component
-def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
-    COMPONENT_STATE = Ref(local_state.fields.stage_states["class_results"])
+def Page(app_state: Reactive[AppState]):
+    story_state = Ref(cast(StoryState, app_state.fields.story_state))
+    stage_state = Ref(
+        cast(StageState, story_state.fields.stage_states["class_results"])
+    )
 
     student_slider_setup, set_student_slider_setup = solara.use_state(False)
     class_slider_setup, set_class_slider_setup = solara.use_state(False)
@@ -124,10 +130,10 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
         # NOTE: use_memo has to be part of the main page render. Including it
         #  in a conditional will result in an error.
         gjapp = JupyterApplication(
-            global_state.value.glue_data_collection, global_state.value.glue_session
+            app_state.value.glue_data_collection, app_state.value.glue_session
         )
 
-        if len(local_state.value.measurements) == 0:
+        if len(story_state.value.measurements) == 0:
             data_ready.set(False)
             return gjapp, {}
 
@@ -153,31 +159,29 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
         for att in ("x_min", "x_max"):
             link((all_student_hist_viewer.state, att), (class_hist_viewer.state, att))
 
-        LOCAL_API.update_class_size(global_state)
+        LOCAL_API.update_class_size(app_state)
 
-        if not local_state.value.measurements_loaded:
-            LOCAL_API.get_measurements(global_state, local_state)
+        if not story_state.value.measurements_loaded:
+            LOCAL_API.get_measurements(app_state, story_state)
 
-        class_measurements = LOCAL_API.get_class_measurements(global_state, local_state)
+        class_measurements = LOCAL_API.get_class_measurements(app_state, story_state)
         # if we are a teacher then our measurements were not loaded with class_measurements and only exist on the front end in local_state.value.measuements
         #  make sure we add these to the class_measurements
-        if (not global_state.value.update_db) and len(
-            local_state.value.measurements
-        ) > 0:
-            class_measurements.extend(m for m in local_state.value.measurements)
+        if (not app_state.value.update_db) and len(story_state.value.measurements) > 0:
+            class_measurements.extend(m for m in story_state.value.measurements)
 
-        measurements = Ref(local_state.fields.class_measurements)
-        student_ids = Ref(local_state.fields.stage_5_class_data_students)
+        measurements = Ref(story_state.fields.class_measurements)
+        student_ids = Ref(story_state.fields.stage_5_class_data_students)
         if class_measurements and not student_ids.value:
             ids = list(np.unique([m.student_id for m in class_measurements]))
             student_ids.set(ids)
         measurements.set(class_measurements)
 
         all_measurements, student_summaries, class_summaries = LOCAL_API.get_all_data(
-            global_state, local_state
+            app_state, story_state
         )
-        if global_state.value.classroom.class_info is not None:
-            class_id = global_state.value.classroom.class_info["id"]
+        if app_state.value.classroom.class_info is not None:
+            class_id = app_state.value.classroom.class_info["id"]
             class_distances = [
                 distance
                 for m in class_measurements
@@ -208,32 +212,30 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                 measurement.class_id = class_id
             all_measurements.extend(class_measurements)
 
-        all_meas = Ref(local_state.fields.all_measurements)
-        all_stu_summaries = Ref(local_state.fields.student_summaries)
-        all_cls_summaries = Ref(local_state.fields.class_summaries)
+        all_meas = Ref(story_state.fields.all_measurements)
+        all_stu_summaries = Ref(story_state.fields.student_summaries)
+        all_cls_summaries = Ref(story_state.fields.class_summaries)
         all_meas.set(all_measurements)
         all_stu_summaries.set(student_summaries)
         all_cls_summaries.set(class_summaries)
 
         student_data = models_to_glue_data(
-            local_state.value.measurements, label="My Data"
+            story_state.value.measurements, label="My Data"
         )
         if not student_data.components:
             student_data = empty_data_from_model_class(
                 StudentMeasurement, label="My Data"
             )
-        student_data = global_state.value.add_or_update_data(student_data)
+        student_data = app_state.value.add_or_update_data(student_data)
 
-        class_ids = local_state.value.stage_5_class_data_students
-        if (not global_state.value.update_db) and len(
-            local_state.value.measurements
-        ) > 0:
-            class_ids.append([m.student_id for m in local_state.value.measurements][0])
+        class_ids = story_state.value.stage_5_class_data_students
+        if (not app_state.value.update_db) and len(story_state.value.measurements) > 0:
+            class_ids.append([m.student_id for m in story_state.value.measurements][0])
         class_data_points = [
-            m for m in local_state.value.class_measurements if m.student_id in class_ids
+            m for m in story_state.value.class_measurements if m.student_id in class_ids
         ]
         class_data = models_to_glue_data(class_data_points, label="Class Data")
-        class_data = global_state.value.add_or_update_data(class_data)
+        class_data = app_state.value.add_or_update_data(class_data)
 
         for component in ("est_dist_value", "velocity_value"):
             gjapp.add_link(student_data, component, class_data, component)
@@ -276,14 +278,14 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
         show_layer_traces_in_legend(student_slider_viewer)
         show_legend(student_slider_viewer, show=True)
 
-        student_id = global_state.value.student.id
+        student_id = app_state.value.student.id
         class_summary_data = make_summary_data(
             class_data,
             input_id_field="student_id",
             output_id_field="id",
             label="Class Summaries",
         )
-        class_summary_data = global_state.value.add_or_update_data(class_summary_data)
+        class_summary_data = app_state.value.add_or_update_data(class_summary_data)
         if len(class_summary_data.subsets) == 0:
             my_summ_subset_state = RangeSubsetState(
                 student_id, student_id, class_summary_data.id["id"]
@@ -297,7 +299,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
         else:
             my_summ_subset = class_summary_data.subsets[0]
 
-        my_measurements = local_state.value.measurements
+        my_measurements = story_state.value.measurements
         my_distances = [
             distance
             for m in my_measurements
@@ -331,17 +333,17 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
         student_hist_viewer.add_subset(my_summ_subset)
 
         all_data = models_to_glue_data(all_measurements, label="All Measurements")
-        all_data = global_state.value.add_or_update_data(all_data)
+        all_data = app_state.value.add_or_update_data(all_data)
 
         student_summ_data = models_to_glue_data(
             student_summaries, label="All Student Summaries"
         )
-        student_summ_data = global_state.value.add_or_update_data(student_summ_data)
+        student_summ_data = app_state.value.add_or_update_data(student_summ_data)
 
         all_class_summ_data = models_to_glue_data(
             class_summaries, label="All Class Summaries"
         )
-        all_class_summ_data = global_state.value.add_or_update_data(all_class_summ_data)
+        all_class_summ_data = app_state.value.add_or_update_data(all_class_summ_data)
 
         if len(all_data.subsets) == 0:
             class_slider_subset = all_data.new_subset(
@@ -415,11 +417,11 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
             size=100,
         )
 
-        if global_state.value.show_team_interface:
+        if app_state.value.show_team_interface:
 
             def fill_all_data():
-                set_dummy_all_measurements(LOCAL_API, local_state, global_state)
-                Ref(local_state.fields.measurements_loaded).set(True)
+                set_dummy_all_measurements(LOCAL_API, story_state, app_state)
+                Ref(story_state.fields.measurements_loaded).set(True)
                 force_memo_update.set(not force_memo_update.value)
 
             solara.Button(
@@ -443,16 +445,16 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
         viewer.state.reset_limits()
 
     def show_class_data(marker):
-        if "Class Data" in global_state.value.glue_data_collection:
-            class_data = global_state.value.glue_data_collection["Class Data"]
+        if "Class Data" in app_state.value.glue_data_collection:
+            class_data = app_state.value.glue_data_collection["Class Data"]
             layer = viewers["layer"].layer_artist_for_data(class_data)
             should_be_visible = marker >= Marker.cla_dat1
             if layer.state.visible is not should_be_visible:
                 layer.state.visible = should_be_visible
 
     def show_student_data(marker):
-        if "My Data" in global_state.value.glue_data_collection:
-            student_data = global_state.value.glue_data_collection["My Data"]
+        if "My Data" in app_state.value.glue_data_collection:
+            student_data = app_state.value.glue_data_collection["My Data"]
             layer = viewers["layer"].layer_artist_for_data(student_data)
             should_be_visible = marker <= Marker.fin_cla1
             if layer.state.visible is not should_be_visible:
@@ -463,13 +465,13 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
             show_class_data(marker)
             show_student_data(marker)
 
-    update_layer_viewer_visibilities(COMPONENT_STATE.value.current_step)
+    update_layer_viewer_visibilities(stage_state.value.current_step)
 
-    class_best_fit_clicked = Ref(COMPONENT_STATE.fields.class_best_fit_clicked)
+    class_best_fit_clicked = Ref(stage_state.fields.class_best_fit_clicked)
 
-    uncertainty_step = Ref(COMPONENT_STATE.fields.uncertainty_state.step)
+    uncertainty_step = Ref(stage_state.fields.uncertainty_state.step)
     uncertainty_max_step_completed = Ref(
-        COMPONENT_STATE.fields.uncertainty_state.max_step_completed
+        stage_state.fields.uncertainty_state.max_step_completed
     )
 
     def _on_best_fit_line_shown(active):
@@ -486,7 +488,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
             show_class_hide_my_age_subset(True)
 
     def _state_callback_setup():
-        current_step = Ref(COMPONENT_STATE.fields.current_step)
+        current_step = Ref(stage_state.fields.current_step)
         current_step.subscribe(update_layer_viewer_visibilities)
         current_step.subscribe(_on_marker_updated)
 
@@ -496,18 +498,18 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
     add_callback(line_fit_tool, "active", _on_best_fit_line_shown)
 
     def _jump_stage_6():
-        push_to_route(router, location, "06-prodata")
+        push_to_route(router, location, "prodata")
 
-    if global_state.value.show_team_interface:
+    if app_state.value.show_team_interface:
         with solara.Row():
             with solara.Column():
                 StateEditor(
                     Marker,
-                    COMPONENT_STATE,
-                    local_state,
-                    global_state,
+                    stage_state,
+                    story_state,
+                    app_state,
                     LOCAL_API,
-                    show_all=not global_state.value.educator,
+                    show_all=not app_state.value.educator,
                 )
             with solara.Column():
                 solara.Button(
@@ -517,20 +519,20 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                 )
 
     def _parse_component_state():
-        student_low_age = Ref(COMPONENT_STATE.fields.student_low_age)
-        student_high_age = Ref(COMPONENT_STATE.fields.student_high_age)
+        student_low_age = Ref(stage_state.fields.student_low_age)
+        student_high_age = Ref(stage_state.fields.student_high_age)
 
-        class_low_age = Ref(COMPONENT_STATE.fields.class_low_age)
-        class_high_age = Ref(COMPONENT_STATE.fields.class_high_age)
+        class_low_age = Ref(stage_state.fields.class_low_age)
+        class_high_age = Ref(stage_state.fields.class_high_age)
 
-        class_data_size = Ref(COMPONENT_STATE.fields.class_data_size)
+        class_data_size = Ref(stage_state.fields.class_data_size)
 
-        class_summary_data = global_state.value.glue_data_collection["Class Summaries"]
+        class_summary_data = app_state.value.glue_data_collection["Class Summaries"]
         student_low_age.set(round(min(class_summary_data["age_value"])))
         student_high_age.set(round(max(class_summary_data["age_value"])))
         class_data_size.set(len(class_summary_data["age_value"]))
 
-        all_class_summ_data = global_state.value.glue_data_collection[
+        all_class_summ_data = app_state.value.glue_data_collection[
             "All Class Summaries"
         ]
         class_low_age.set(round(min(all_class_summ_data["age_value"])))
@@ -539,40 +541,36 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
     solara.use_memo(_parse_component_state, dependencies=[])
 
     # --------------------- Row 1: OUR DATA HUBBLE VIEWER -----------------------
-    if COMPONENT_STATE.value.current_step_between(
+    if stage_state.value.current_step_between(
         Marker.ran_var1, Marker.fin_cla1
-    ) or COMPONENT_STATE.value.current_step_between(Marker.cla_dat1, Marker.you_age1c):
+    ) or stage_state.value.current_step_between(Marker.cla_dat1, Marker.you_age1c):
         with solara.ColumnsResponsive(12, large=[5, 7]):
             with rv.Col():
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineRandomVariability.vue",
                     event_back_callback=lambda _: push_to_route(
-                        router, location, "04-explore-data"
+                        router, location, "explore-data"
                     ),
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
                     allow_back=False,
-                    show=COMPONENT_STATE.value.is_current_step(Marker.ran_var1),
+                    show=stage_state.value.is_current_step(Marker.ran_var1),
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineFinishedClassmates.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.fin_cla1),
-                    state_view={
-                        "class_data_size": COMPONENT_STATE.value.class_data_size
-                    },
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.fin_cla1),
+                    state_view={"class_data_size": stage_state.value.class_data_size},
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineClassData.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.cla_dat1),
-                    state_view={
-                        "class_data_size": COMPONENT_STATE.value.class_data_size
-                    },
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.cla_dat1),
+                    state_view={"class_data_size": stage_state.value.class_data_size},
                 )
 
                 # Skipping this guideline for now since we don't have linedraw functionality in glue viewer.
@@ -585,27 +583,36 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                 # )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineBestFitLinec.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.bes_fit1c),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.bes_fit1c),
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineYourAgeEstimatec.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.you_age1c),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.you_age1c),
                     state_view={
-                        "low_guess": get_free_response(
-                            local_state, COMPONENT_STATE, "likely-low-age"
-                        ).get("response"),
-                        "high_guess": get_free_response(
-                            local_state, COMPONENT_STATE, "likely-high-age"
-                        ).get("response"),
-                        "best_guess": get_free_response(
-                            local_state, COMPONENT_STATE, "best-guess-age"
-                        ).get("response"),
+                        "low_guess": stage_state.value.free_responses.get(
+                            "likely-low-age",
+                            FreeResponse(tag="likely-low-age"),
+                        )
+                        .model_dump()
+                        .get("response"),
+                        "high_guess": stage_state.value.free_responses.get(
+                            "likely-high-age",
+                            FreeResponse(tag="likely-high-age"),
+                        )
+                        .model_dump()
+                        .get("response"),
+                        "best_guess": stage_state.value.free_responses.get(
+                            "best-guess-age",
+                            FreeResponse(tag="best-guess-age"),
+                        )
+                        .model_dump()
+                        .get("response"),
                     },
                 )
 
@@ -613,97 +620,98 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                 ViewerLayout(viewer=viewers["layer"])
 
     # --------------------- Row 2: SLIDER VERSION: OUR DATA HUBBLE VIEWER -----------------------
-    if COMPONENT_STATE.value.current_step_between(Marker.cla_res1, Marker.con_int3):
+    if stage_state.value.current_step_between(Marker.cla_res1, Marker.con_int3):
         with solara.ColumnsResponsive(12, large=[5, 7]):
             with rv.Col():
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineClassmatesResults.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.cla_res1),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.cla_res1),
                     state_view={
-                        "class_data_size": COMPONENT_STATE.value.class_data_size,
+                        "class_data_size": stage_state.value.class_data_size,
                         "my_color": MY_DATA_COLOR_NAME,
                         "my_class_color": MY_CLASS_COLOR_NAME,
                     },
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineRelationshipAgeSlopeMC.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.rel_age1),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.rel_age1),
                     event_mc_callback=lambda event: mc_callback(
-                        event, local_state, COMPONENT_STATE
+                        event, story_state, stage_state
                     ),
                     state_view={
-                        "mc_score": get_multiple_choice(
-                            local_state, COMPONENT_STATE, "age-slope-trend"
-                        ),
+                        "mc_score": stage_state.value.multiple_choice_responses.get(
+                            "age-slope-trend",
+                            MultipleChoiceResponse(tag="age-slope-trend"),
+                        ).model_dump(),
                         "score_tag": "age-slope-trend",
                     },
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineClassAgeRange.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.cla_age1),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.cla_age1),
                     state_view={
-                        "student_low_age": COMPONENT_STATE.value.student_low_age,
-                        "student_high_age": COMPONENT_STATE.value.student_high_age,
+                        "student_low_age": stage_state.value.student_low_age,
+                        "student_high_age": stage_state.value.student_high_age,
                     },
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineClassAgeRange2.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.cla_age2),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.cla_age2),
                     state_view={
-                        "student_low_age": COMPONENT_STATE.value.student_low_age,
-                        "student_high_age": COMPONENT_STATE.value.student_high_age,
+                        "student_low_age": stage_state.value.student_low_age,
+                        "student_high_age": stage_state.value.student_high_age,
                     },
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineClassAgeRange3.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.cla_age3),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.cla_age3),
                     state_view={
-                        "student_low_age": COMPONENT_STATE.value.student_low_age,
-                        "student_high_age": COMPONENT_STATE.value.student_high_age,
+                        "student_low_age": stage_state.value.student_low_age,
+                        "student_high_age": stage_state.value.student_high_age,
                     },
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineClassAgeRange4.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.cla_age4),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.cla_age4),
                     state_view={
-                        "student_low_age": COMPONENT_STATE.value.student_low_age,
-                        "student_high_age": COMPONENT_STATE.value.student_high_age,
+                        "student_low_age": stage_state.value.student_low_age,
+                        "student_high_age": stage_state.value.student_high_age,
                     },
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineLearnUncertainty1.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.lea_unc1),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.lea_unc1),
                     state_view={
-                        "uncertainty_slideshow_finished": COMPONENT_STATE.value.uncertainty_slideshow_finished,
+                        "uncertainty_slideshow_finished": stage_state.value.uncertainty_slideshow_finished,
                     },
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineMostLikelyValue1.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.mos_lik1),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.mos_lik1),
                 )
 
             def update_student_slider_subset(id, highlighted):
@@ -730,16 +738,14 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                     gjapp=gjapp,
                     data=class_summary_data,
                     on_id=update_student_slider_subset,
-                    highlight_ids=[global_state.value.student.id],
+                    highlight_ids=[app_state.value.student.id],
                     id_component=class_summary_data.id["id"],
                     value_component=class_summary_data.id["age_value"],
                     default_color=student_default_color,
                     highlight_color=student_highlight_color,
                 )
 
-        if COMPONENT_STATE.value.current_step_between(
-            Marker.lea_unc1, Marker.you_age1c
-        ):
+        if stage_state.value.current_step_between(Marker.lea_unc1, Marker.you_age1c):
             with solara.ColumnsResponsive(12, large=[5, 7]):
                 with rv.Col():
                     pass
@@ -747,54 +753,63 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                     with rv.Col(cols=10, offset=1):
                         UncertaintySlideshow(
                             event_on_slideshow_finished=lambda _: Ref(
-                                COMPONENT_STATE.fields.uncertainty_slideshow_finished
+                                stage_state.fields.uncertainty_slideshow_finished
                             ).set(True),
-                            step=COMPONENT_STATE.value.uncertainty_state.step,
-                            max_step_completed=COMPONENT_STATE.value.uncertainty_state.max_step_completed,
-                            age_calc_short1=get_free_response(
-                                local_state, COMPONENT_STATE, "shortcoming-1"
-                            ).get("response"),
-                            age_calc_short2=get_free_response(
-                                local_state, COMPONENT_STATE, "shortcoming-2"
-                            ).get("response"),
-                            age_calc_short_other=get_free_response(
-                                local_state, COMPONENT_STATE, "other-shortcomings"
-                            ).get("response"),
+                            step=stage_state.value.uncertainty_state.step,
+                            max_step_completed=stage_state.value.uncertainty_state.max_step_completed,
+                            age_calc_short1=stage_state.value.free_responses.get(
+                                "shortcoming-1",
+                                FreeResponse(tag="shortcoming-1"),
+                            )
+                            .model_dump()
+                            .get("response"),
+                            age_calc_short2=stage_state.value.free_responses.get(
+                                "shortcoming-2",
+                                FreeResponse(tag="shortcoming-2"),
+                            )
+                            .model_dump()
+                            .get("response"),
+                            age_calc_short_other=stage_state.value.free_responses.get(
+                                "other-shortcomings",
+                                FreeResponse(tag="other-shortcomings"),
+                            )
+                            .model_dump()
+                            .get("response"),
                             event_fr_callback=lambda event: fr_callback(
                                 event,
-                                local_state,
-                                COMPONENT_STATE,
+                                story_state,
+                                stage_state,
                                 lambda: LOCAL_API.put_story_state(
-                                    global_state, local_state
+                                    app_state, story_state
                                 ),
                             ),
                             free_responses=[
-                                get_free_response(
-                                    local_state, COMPONENT_STATE, "shortcoming-4"
-                                ),
-                                get_free_response(
-                                    local_state,
-                                    COMPONENT_STATE,
+                                stage_state.value.free_responses.get(
+                                    "shortcoming-4",
+                                    FreeResponse(tag="shortcoming-4"),
+                                ).model_dump(),
+                                stage_state.value.free_responses.get(
                                     "systematic-uncertainty",
-                                ),
+                                    FreeResponse(tag="systematic-uncertainty"),
+                                ).model_dump(),
                             ],
                             event_set_step=uncertainty_step.set,
                             event_set_max_step_completed=uncertainty_max_step_completed.set,
                             image_location=get_image_path(router, "stage_five"),
-                            show_team_interface=global_state.value.show_team_interface,
+                            show_team_interface=app_state.value.show_team_interface,
                         )
 
     # --------------------- Row 3: ALL DATA HUBBLE VIEWER - during class sequence -----------------------
 
-    if COMPONENT_STATE.value.current_step_at_or_after(Marker.cla_res1c):
+    if stage_state.value.current_step_at_or_after(Marker.cla_res1c):
         with solara.ColumnsResponsive(12, large=[5, 7]):
             with rv.Col():
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineClassmatesResultsc.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.cla_res1c),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.cla_res1c),
                     state_view={
                         "my_class_color": MY_CLASS_COLOR_NAME,
                         "other_class_color": OTHER_CLASSES_COLOR_NAME,
@@ -802,13 +817,13 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineClassAgeRangec.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.cla_age1c),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.cla_age1c),
                     state_view={
-                        "class_low_age": COMPONENT_STATE.value.class_low_age,
-                        "class_high_age": COMPONENT_STATE.value.class_high_age,
+                        "class_low_age": stage_state.value.class_low_age,
+                        "class_high_age": stage_state.value.class_high_age,
                     },
                 )
 
@@ -833,9 +848,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                     gjapp=gjapp,
                     data=all_summary_data,
                     on_id=update_class_slider_subset,
-                    highlight_ids=[
-                        global_state.value.classroom.class_info.get("id", 0)
-                    ],
+                    highlight_ids=[app_state.value.classroom.class_info.get("id", 0)],
                     id_component=all_summary_data.id["class_id"],
                     value_component=all_summary_data.id["age_value"],
                     default_color=class_default_color,
@@ -845,39 +858,48 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                 with rv.Col(cols=10, offset=1):
                     UncertaintySlideshow(
                         event_on_slideshow_finished=lambda _: Ref(
-                            COMPONENT_STATE.fields.uncertainty_slideshow_finished
+                            stage_state.fields.uncertainty_slideshow_finished
                         ).set(True),
-                        step=COMPONENT_STATE.value.uncertainty_state.step,
-                        max_step_completed=COMPONENT_STATE.value.uncertainty_state.max_step_completed,
-                        age_calc_short1=get_free_response(
-                            local_state, COMPONENT_STATE, "shortcoming-1"
-                        ).get("response"),
-                        age_calc_short2=get_free_response(
-                            local_state, COMPONENT_STATE, "shortcoming-2"
-                        ).get("response"),
-                        age_calc_short_other=get_free_response(
-                            local_state, COMPONENT_STATE, "other-shortcomings"
-                        ).get("response"),
+                        step=stage_state.value.uncertainty_state.step,
+                        max_step_completed=stage_state.value.uncertainty_state.max_step_completed,
+                        age_calc_short1=stage_state.value.free_responses.get(
+                            "shortcoming-1",
+                            FreeResponse(tag="shortcoming-1"),
+                        )
+                        .model_dump()
+                        .get("response"),
+                        age_calc_short2=stage_state.value.free_responses.get(
+                            "shortcoming-2",
+                            FreeResponse(tag="shortcoming-2"),
+                        )
+                        .model_dump()
+                        .get("response"),
+                        age_calc_short_other=stage_state.value.free_responses.get(
+                            "other-shortcomings",
+                            FreeResponse(tag="other-shortcomings"),
+                        )
+                        .model_dump()
+                        .get("response"),
                         event_fr_callback=lambda event: fr_callback(
                             event,
-                            local_state,
-                            COMPONENT_STATE,
-                            lambda: LOCAL_API.put_story_state(
-                                global_state, local_state
-                            ),
+                            story_state,
+                            stage_state,
+                            lambda: LOCAL_API.put_story_state(app_state, story_state),
                         ),
                         free_responses=[
-                            get_free_response(
-                                local_state, COMPONENT_STATE, "shortcoming-4"
-                            ),
-                            get_free_response(
-                                local_state, COMPONENT_STATE, "systematic-uncertainty"
-                            ),
+                            stage_state.value.free_responses.get(
+                                "shortcoming-4",
+                                FreeResponse(tag="shortcoming-4"),
+                            ).model_dump(),
+                            stage_state.value.free_responses.get(
+                                "systematic-uncertainty",
+                                FreeResponse(tag="systematic-uncertainty"),
+                            ).model_dump(),
                         ],
                         event_set_step=uncertainty_step.set,
                         event_set_max_step_completed=uncertainty_max_step_completed.set,
                         image_location=get_image_path(router, "stage_five"),
-                        show_team_interface=global_state.value.show_team_interface,
+                        show_team_interface=app_state.value.show_team_interface,
                     )
 
     # --------------------- Row 4: OUR CLASS HISTOGRAM VIEWER -----------------------
@@ -887,10 +909,10 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
         my_summ_subset = class_summary_data.subsets[0]
         my_summ_subset.style.alpha = 1 - int(value)
 
-    if COMPONENT_STATE.value.current_step_between(Marker.age_dis1, Marker.con_int3):
+    if stage_state.value.current_step_between(Marker.age_dis1, Marker.con_int3):
         with solara.ColumnsResponsive(12, large=[5, 7]):
             with rv.Col():
-                if COMPONENT_STATE.value.current_step_between(
+                if stage_state.value.current_step_between(
                     Marker.mos_lik2, Marker.con_int3
                 ):
                     with rv.Row():
@@ -904,7 +926,7 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
                             )
 
                         with rv.Col():
-                            if COMPONENT_STATE.value.current_step_between(
+                            if stage_state.value.current_step_between(
                                 Marker.con_int2, Marker.con_int3
                             ):
                                 PercentageSelector(
@@ -916,51 +938,49 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
 
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineClassAgeDistribution.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.age_dis1),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.age_dis1),
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineShowMyAgeDistribution.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.sho_mya1),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.sho_mya1),
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineMostLikelyValue2.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.mos_lik2),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.mos_lik2),
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineMostLikelyValue3.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.mos_lik3),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.mos_lik3),
                 )
 
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineConfidenceInterval.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.con_int1),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.con_int1),
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineConfidenceInterval2.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.con_int2),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.con_int2),
                 )
 
-            if COMPONENT_STATE.value.current_step_between(
-                Marker.sho_mya1, Marker.con_int1
-            ):
+            if stage_state.value.current_step_between(Marker.sho_mya1, Marker.con_int1):
                 with rv.Col():
                     with rv.Row():
 
@@ -988,56 +1008,56 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
 
     ScaffoldAlert(
         GUIDELINE_ROOT / "GuidelineMostLikelyValueReflect4.vue",
-        event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-        event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-        can_advance=COMPONENT_STATE.value.can_transition(next=True),
-        show=COMPONENT_STATE.value.is_current_step(Marker.mos_lik4),
+        event_next_callback=lambda _: transition_next(stage_state),
+        event_back_callback=lambda _: transition_previous(stage_state),
+        can_advance=stage_state.value.can_transition(next=True),
+        show=stage_state.value.is_current_step(Marker.mos_lik4),
         event_fr_callback=lambda event: fr_callback(
             event,
-            local_state,
-            COMPONENT_STATE,
-            lambda: LOCAL_API.put_story_state(global_state, local_state),
+            story_state,
+            stage_state,
+            lambda: LOCAL_API.put_story_state(app_state, story_state),
         ),
         state_view={
-            "free_response_a": get_free_response(
-                local_state, COMPONENT_STATE, "best-guess-age"
+            "free_response_a": stage_state.value.free_responses.get(
+                "best-guess-age", FreeResponse(tag="best-guess-age").model_dump()
             ),
             # 'best_guess_answered': local_state.value.question_completed("best-guess-age"),
-            "free_response_b": get_free_response(
-                local_state, COMPONENT_STATE, "my-reasoning"
+            "free_response_b": stage_state.value.free_responses.get(
+                "my-reasoning", FreeResponse(tag="my-reasoning").model_dump()
             ),
         },
     )
 
     ScaffoldAlert(
         GUIDELINE_ROOT / "GuidelineConfidenceIntervalReflect3.vue",
-        event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-        event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-        can_advance=COMPONENT_STATE.value.can_transition(next=True),
-        show=COMPONENT_STATE.value.is_current_step(Marker.con_int3),
+        event_next_callback=lambda _: transition_next(stage_state),
+        event_back_callback=lambda _: transition_previous(stage_state),
+        can_advance=stage_state.value.can_transition(next=True),
+        show=stage_state.value.is_current_step(Marker.con_int3),
         event_fr_callback=lambda event: fr_callback(
             event,
-            local_state,
-            COMPONENT_STATE,
-            lambda: LOCAL_API.put_story_state(global_state, local_state),
+            story_state,
+            stage_state,
+            lambda: LOCAL_API.put_story_state(app_state, story_state),
         ),
         state_view={
-            "free_response_a": get_free_response(
-                local_state, COMPONENT_STATE, "likely-low-age"
+            "free_response_a": stage_state.value.free_responses.get(
+                "likely-low-age", FreeResponse(tag="likely-low-age").model_dump()
             ),
-            "free_response_b": get_free_response(
-                local_state, COMPONENT_STATE, "likely-high-age"
+            "free_response_b": stage_state.value.free_responses.get(
+                "likely-high-age", FreeResponse(tag="likely-high-age").model_dump()
             ),
             # 'high_low_answered': local_state.value.question_completed("likely-low-age") and local_state.value.question_completed("likely-high-age"),
-            "free_response_c": get_free_response(
-                local_state, COMPONENT_STATE, "my-reasoning-2"
+            "free_response_c": stage_state.value.free_responses.get(
+                "my-reasoning-2", FreeResponse(tag="my-reasoning-2").model_dump()
             ),
         },
     )
 
     # --------------------- Row 5: ALL DATA HISTOGRAM VIEWER -----------------------
 
-    if COMPONENT_STATE.value.current_step_between(Marker.age_dis1c):
+    if stage_state.value.current_step_between(Marker.age_dis1c):
         with solara.ColumnsResponsive(12, large=[5, 7]):
             with rv.Col():
                 with rv.Row():
@@ -1068,134 +1088,159 @@ def Page(global_state: Reactive[AppState], local_state: Reactive[LocalState]):
 
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineClassAgeDistributionc.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.age_dis1c),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.age_dis1c),
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineTwoHistograms1.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.two_his1),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.two_his1),
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineTwoHistogramsMC2.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.two_his2),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.two_his2),
                     event_mc_callback=lambda event: mc_callback(
-                        event, local_state, COMPONENT_STATE
+                        event, story_state, stage_state
                     ),
                     state_view={
-                        "mc_score": get_multiple_choice(
-                            local_state, COMPONENT_STATE, "histogram-range"
-                        ),
+                        "mc_score": stage_state.value.multiple_choice_responses.get(
+                            "histogram-range",
+                            MultipleChoiceResponse(tag="histogram-range"),
+                        ).model_dump(),
                         "score_tag": "histogram-range",
                     },
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineTwoHistogramsMC3.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.two_his3),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.two_his3),
                     event_mc_callback=lambda event: mc_callback(
-                        event, local_state, COMPONENT_STATE
+                        event, story_state, stage_state
                     ),
                     state_view={
-                        "mc_score": get_multiple_choice(
-                            local_state, COMPONENT_STATE, "histogram-percent-range"
-                        ),
+                        "mc_score": stage_state.value.multiple_choice_responses.get(
+                            "histogram-percent-range",
+                            MultipleChoiceResponse(tag="histogram-percent-range"),
+                        ).model_dump(),
                         "score_tag": "histogram-percent-range",
                     },
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineTwoHistogramsMC4.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.two_his4),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.two_his4),
                     event_mc_callback=lambda event: mc_callback(
-                        event, local_state, COMPONENT_STATE
+                        event, story_state, stage_state
                     ),
                     state_view={
-                        "mc_score": get_multiple_choice(
-                            local_state, COMPONENT_STATE, "histogram-distribution"
-                        ),
+                        "mc_score": stage_state.value.multiple_choice_responses.get(
+                            "histogram-distribution",
+                            MultipleChoiceResponse(tag="histogram-distribution"),
+                        ).model_dump(),
                         "score_tag": "histogram-distribution",
                     },
                 )
                 ScaffoldAlert(
                     GUIDELINE_ROOT / "GuidelineTwoHistogramsReflect5.vue",
-                    event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.two_his5),
+                    event_next_callback=lambda _: transition_next(stage_state),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.two_his5),
                     event_fr_callback=lambda event: fr_callback(
                         event,
-                        local_state,
-                        COMPONENT_STATE,
-                        lambda: LOCAL_API.put_story_state(global_state, local_state),
+                        story_state,
+                        stage_state,
+                        lambda: LOCAL_API.put_story_state(app_state, story_state),
                     ),
                     state_view={
-                        "free_response": get_free_response(
-                            local_state, COMPONENT_STATE, "unc-range-change-reasoning"
-                        ),
+                        "free_response": stage_state.value.free_responses.get(
+                            "unc-range-change-reasoning",
+                            FreeResponse(tag="unc-range-change-reasoning"),
+                        ).model_dump(),
                     },
                 )
                 ScaffoldAlert(
                     # TODO: event_next_callback should go to next stage but I don't know how to set that up.
                     GUIDELINE_ROOT / "GuidelineMoreDataDistribution.vue",
                     event_next_callback=lambda _: push_to_route(
-                        router, location, "06-prodata"
+                        router, location, "prodata"
                     ),
-                    event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-                    can_advance=COMPONENT_STATE.value.can_transition(next=True),
-                    show=COMPONENT_STATE.value.is_current_step(Marker.mor_dat1),
+                    event_back_callback=lambda _: transition_previous(stage_state),
+                    can_advance=stage_state.value.can_transition(next=True),
+                    show=stage_state.value.is_current_step(Marker.mor_dat1),
                 )
 
             with rv.Col():
-                if COMPONENT_STATE.value.current_step_between(Marker.two_his1):
+                if stage_state.value.current_step_between(Marker.two_his1):
                     ViewerLayout(viewers["all_student_hist"])
 
                 ViewerLayout(viewers["class_hist"])
 
         ScaffoldAlert(
             GUIDELINE_ROOT / "GuidelineConfidenceIntervalReflect2c.vue",
-            event_next_callback=lambda _: transition_next(COMPONENT_STATE),
-            event_back_callback=lambda _: transition_previous(COMPONENT_STATE),
-            can_advance=COMPONENT_STATE.value.can_transition(next=True),
-            show=COMPONENT_STATE.value.is_current_step(Marker.con_int2c),
+            event_next_callback=lambda _: transition_next(stage_state),
+            event_back_callback=lambda _: transition_previous(stage_state),
+            can_advance=stage_state.value.can_transition(next=True),
+            show=stage_state.value.is_current_step(Marker.con_int2c),
             event_fr_callback=lambda event: fr_callback(
                 event,
-                local_state,
-                COMPONENT_STATE,
-                lambda: LOCAL_API.put_story_state(global_state, local_state),
+                story_state,
+                stage_state,
+                lambda: LOCAL_API.put_story_state(app_state, story_state),
             ),
             state_view={
-                "low_guess": get_free_response(
-                    local_state, COMPONENT_STATE, "likely-low-age"
-                ).get("response"),
-                "high_guess": get_free_response(
-                    local_state, COMPONENT_STATE, "likely-high-age"
-                ).get("response"),
-                "best_guess": get_free_response(
-                    local_state, COMPONENT_STATE, "best-guess-age"
-                ).get("response"),
-                "free_response_a": get_free_response(
-                    local_state, COMPONENT_STATE, "new-most-likely-age"
-                ),
-                "free_response_b": get_free_response(
-                    local_state, COMPONENT_STATE, "new-likely-low-age"
-                ),
-                "free_response_c": get_free_response(
-                    local_state, COMPONENT_STATE, "new-likely-high-age"
-                ),
-                "free_response_d": get_free_response(
-                    local_state, COMPONENT_STATE, "my-updated-reasoning"
-                ),
+                "low_guess": stage_state.value.free_responses.get(
+                    "likely-low-age",
+                    FreeResponse(tag="likely-low-age"),
+                )
+                .model_dump()
+                .get("response"),
+                "high_guess": stage_state.value.free_responses.get(
+                    "likely-high-age",
+                    FreeResponse(tag="likely-high-age"),
+                )
+                .model_dump()
+                .get("response"),
+                "best_guess": stage_state.value.free_responses.get(
+                    "best-guess-age",
+                    FreeResponse(tag="best-guess-age"),
+                )
+                .model_dump()
+                .get("response"),
+                "free_response_a": stage_state.value.free_responses.get(
+                    "new-most-likely-age",
+                    FreeResponse(tag="new-most-likely-age"),
+                )
+                .model_dump()
+                .get("response"),
+                "free_response_b": stage_state.value.free_responses.get(
+                    "new-likely-low-age",
+                    FreeResponse(tag="new-likely-low-age"),
+                )
+                .model_dump()
+                .get("response"),
+                "free_response_c": stage_state.value.free_responses.get(
+                    "new-likely-high-age",
+                    FreeResponse(tag="new-likely-high-age"),
+                )
+                .model_dump()
+                .get("response"),
+                "free_response_d": stage_state.value.free_responses.get(
+                    "my-updated-reasoning",
+                    FreeResponse(tag="my-updated-reasoning"),
+                )
+                .model_dump()
+                .get("response"),
             },
         )
