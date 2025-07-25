@@ -5,7 +5,11 @@ from typing import Any
 from pydantic import BaseModel, field_validator, Field, computed_field
 from solara.lab import Ref
 
-from cds_core.base_states import BaseMarker, BaseStageState, register_model
+from cds_core.base_states import (
+    BaseMarker,
+    BaseStageState,
+    register_stage,
+)
 
 
 class Marker(BaseMarker):
@@ -86,12 +90,12 @@ class VelocityReflection(BaseModel):
     max_step_completed: int = 0
 
 
-@register_model("stage", "spectra_&_velocity")
-class ComponentState(BaseStageState):
+@register_stage("spectra_&_velocity")
+class StageState(BaseStageState):
     current_step: Marker = Marker.mee_gui1
     stage_id: str = "spectra_&_velocity"
     show_example_galaxy: bool = False
-    selected_galaxy: int = 0
+    selected_galaxy: int | None = 0
     selected_galaxies: list[int] = []
     galaxy_is_selected: bool = False
     selected_example_galaxy: int = 0
@@ -195,7 +199,7 @@ class ComponentState(BaseStageState):
 
     @property
     def dot_seq10_gate(self) -> bool:
-        return self.vel_meas_consensus_answered
+        return self.has_response("vel_meas_consensus")
 
     @property
     def ref_dat1_gate(self) -> bool:
@@ -211,7 +215,7 @@ class ComponentState(BaseStageState):
 
     @property
     def end_sta1_gate(self) -> bool:
-        return self.reflect_vel_value_answered
+        return self.has_response("reflect_vel_value")
 
     @property
     def nxt_stg_gate(self) -> bool:

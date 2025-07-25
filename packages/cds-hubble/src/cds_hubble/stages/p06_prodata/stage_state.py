@@ -4,7 +4,11 @@ from typing import Any
 from pydantic import field_validator
 from solara.lab import Ref
 
-from cds_core.base_states import BaseMarker, BaseStageState, register_model
+from cds_core.base_states import (
+    BaseMarker,
+    BaseStageState,
+    register_stage,
+)
 
 
 class Marker(BaseMarker):
@@ -23,16 +27,10 @@ class Marker(BaseMarker):
     sto_fin3 = enum.auto()
 
 
-@register_model("stage", "professional_data")
-class ComponentState(BaseStageState):
+@register_stage("professional_data")
+class StageState(BaseStageState):
     current_step: Marker = Marker.pro_dat0
     stage_id: str = "professional_data"
-    pro_data_1_answered: bool = False
-    pro_data_2_answered: bool = False
-    pro_data_4_answered: bool = False
-    pro_data_6_answered: bool = False
-    pro_data_7_answered: bool = False
-    pro_data_9_answered: bool = False
 
     # TODO: I don't think our_age is used anywhere
     our_age: float = 0
@@ -51,23 +49,23 @@ class ComponentState(BaseStageState):
 
     @property
     def pro_dat2_gate(self) -> bool:
-        return self.pro_data_1_answered
+        return self.has_response("pro-dat1")
 
     @property
     def pro_dat4_gate(self) -> bool:
-        return self.pro_data_2_answered
+        return self.has_response("pro-dat2")
 
     @property
     def pro_dat5_gate(self) -> bool:
-        return self.pro_data_4_answered
+        return self.has_response("pro-dat4")
 
     @property
     def pro_dat7_gate(self) -> bool:
-        return self.pro_data_6_answered
+        return self.has_response("pro-dat6")
 
     @property
     def pro_dat8_gate(self) -> bool:
-        return self.pro_data_7_answered
+        return self.has_response("pro-dat7")
 
     # @property
     # def pro_dat9_gate(self) -> bool:
@@ -75,4 +73,4 @@ class ComponentState(BaseStageState):
 
     @property
     def sto_fin1_gate(self) -> bool:
-        return self.pro_data_9_answered
+        return self.has_response("pro-dat9")

@@ -6,7 +6,11 @@ from typing import Any
 from pydantic import BaseModel, field_validator, computed_field
 from solara.lab import Ref
 
-from cds_core.base_states import BaseMarker, BaseStageState, register_model
+from cds_core.base_states import (
+    BaseMarker,
+    BaseStageState,
+    register_stage,
+)
 
 
 class Marker(BaseMarker):
@@ -54,8 +58,8 @@ class UncertaintyState(BaseModel):
     max_step_completed: int = 0
 
 
-@register_model("stage", "class_results_and_uncertainty")
-class ComponentState(BaseStageState):
+@register_stage("class_results_and_uncertainty")
+class StageState(BaseStageState):
     current_step: Marker = Marker.first()
     stage_id: str = "class_results_and_uncertainty"
     student_low_age: int = 0
@@ -84,7 +88,7 @@ class ComponentState(BaseStageState):
 
     @property
     def cla_age1_gate(self) -> bool:
-        return LOCAL_STATE.value.question_completed("age-slope-trend")
+        return self.has_response("age-slope-trend")
 
     @property
     def mos_lik1_gate(self) -> bool:
@@ -108,15 +112,15 @@ class ComponentState(BaseStageState):
 
     @property
     def two_his3_gate(self) -> bool:
-        return self.histogram_range_answered
+        return self.has_response("histogram-range")
 
     @property
     def two_his4_gate(self) -> bool:
-        return self.histogram_percent_range_answered
+        return self.has_response("histogram-percent-range")
 
     @property
     def two_his5_gate(self) -> bool:
-        return self.histogram_distribution
+        return self.has_response("histogram-distribution")
 
     # @property
     # def mor_dat1_gate(self) -> bool:

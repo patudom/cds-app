@@ -3,7 +3,11 @@ import enum
 from pydantic import BaseModel, computed_field
 from solara.lab import Ref
 
-from cds_core.base_states import BaseMarker, BaseStageState, register_model
+from cds_core.base_states import (
+    BaseMarker,
+    BaseStageState,
+    register_stage,
+)
 from ...components import INTRO_SLIDESHOW_LENGTH
 
 
@@ -17,8 +21,8 @@ class IntroSlideshow(BaseModel):
     max_step_completed: int = 0
 
 
-@register_model("stage", "introduction")
-class ComponentState(BaseStageState):
+@register_stage("introduction")
+class StageState(BaseStageState):
     current_step: Marker = Marker.int_sli1
     stage_id: str = "introduction"
     intro_slideshow_state: IntroSlideshow = IntroSlideshow()

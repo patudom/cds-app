@@ -4,7 +4,11 @@ from typing import Any
 from pydantic import BaseModel, field_validator, computed_field
 from solara.lab import Ref
 
-from cds_core.base_states import BaseMarker, BaseStageState, register_model
+from cds_core.base_states import (
+    BaseMarker,
+    BaseStageState,
+    register_stage,
+)
 
 
 class Marker(BaseMarker):
@@ -37,8 +41,8 @@ class HubbleSlideshow(BaseModel):
     max_step_completed: int = 0
 
 
-@register_model("stage", "explore_data")
-class ComponentState(BaseStageState):
+@register_stage("explore_data")
+class StageState(BaseStageState):
     current_step: Marker = Marker.first()
     stage_id: str = "explore_data"
     show_hubble_slideshow_dialog: bool = False
@@ -49,9 +53,6 @@ class ComponentState(BaseStageState):
     best_fit_gal_vel: float = 100
     best_fit_gal_dist: float = 8000
     class_data_displayed: bool = False
-    tre_data_mc1_answered: bool = False
-    tre_data_mc3_answered: bool = False
-    galaxy_trend_answered: bool = False
 
     _max_step: int = 0  # not included in model
 
@@ -70,7 +71,7 @@ class ComponentState(BaseStageState):
 
     @property
     def tre_dat2_gate(self) -> bool:
-        return self.tre_data_mc1_answered
+        return self.has_response("tre-dat-mc1")
 
     @property
     def tre_dat3_gate(self) -> bool:
@@ -78,11 +79,11 @@ class ComponentState(BaseStageState):
 
     @property
     def rel_vel1_gate(self) -> bool:
-        return self.tre_data_mc3_answered
+        return self.has_response("tre-dat-mc3")
 
     @property
     def hub_exp1_gate(self) -> bool:
-        return self.galaxy_trend_answered
+        return self.has_response("galaxy-trend")
 
     @property
     def tre_lin1_gate(self) -> bool:

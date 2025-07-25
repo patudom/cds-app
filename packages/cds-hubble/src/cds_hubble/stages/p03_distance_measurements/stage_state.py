@@ -4,7 +4,11 @@ from typing import Any, Optional
 from pydantic import field_validator, Field, computed_field
 from solara.lab import Ref
 
-from cds_core.base_states import BaseMarker, BaseStageState, register_model
+from cds_core.base_states import (
+    BaseMarker,
+    BaseStageState,
+    register_stage,
+)
 
 
 class Marker(BaseMarker):
@@ -39,8 +43,8 @@ class Marker(BaseMarker):
     )  # This guideline doesn't actually exist - just including it to allow an exit gate on the previous guideline.
 
 
-@register_model("stage", "distance_measurements")
-class ComponentState(BaseStageState):
+@register_stage("distance_measurements")
+class StageState(BaseStageState):
     current_step: Marker = Marker.ang_siz1
     stage_id: str = "distance_measurements"
 
@@ -59,9 +63,6 @@ class ComponentState(BaseStageState):
     show_dotplot_lines: bool = True
     angular_size_line: Optional[float | int] = None
     distance_line: Optional[float | int] = None
-    ang_meas_consensus_answered: bool = False
-    ang_meas_dist_relation_answered: bool = False
-    ang_meas_consensus_2_answered: bool = False
     wwt_ready: bool = Field(False, exclude=True)
 
     @computed_field
@@ -94,15 +95,15 @@ class ComponentState(BaseStageState):
 
     @property
     def dot_seq3_gate(self):
-        return self.ang_meas_consensus_answered
+        return self.has_response("ang_meas_consensus")
 
     @property
     def ang_siz5a_gate(self):
-        return self.ang_meas_consensus_answered
+        return self.has_response("ang_meas_dist_relation")
 
     @property
     def dot_seq7_gate(self):
-        return self.ang_meas_consensus_2_answered
+        return self.has_response("ang_meas_consensus_2")
 
     @property
     def dot_seq5_gate(self):

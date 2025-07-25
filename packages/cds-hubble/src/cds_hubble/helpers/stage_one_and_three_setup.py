@@ -15,11 +15,11 @@ from .example_measurement_helpers import (
     load_and_create_seed_data,
 )
 from .viewer_marker_colors import MY_DATA_COLOR
-from ..story_state import LocalState
+from ..story_state import StoryState
 from ..utils import models_to_glue_data, _add_or_update_data
 
 
-def initialize_second_example_measurement(local_state: Reactive[LocalState]):
+def initialize_second_example_measurement(local_state: Reactive[StoryState]):
     example_measurements = Ref(local_state.fields.example_measurements)
     if len(example_measurements.value) < 2:
         return
@@ -32,7 +32,7 @@ def initialize_second_example_measurement(local_state: Reactive[LocalState]):
 
 
 def _add_or_update_example_measurements_to_glue(
-    local_state: Reactive[LocalState], gjapp: JupyterApplication
+    local_state: Reactive[StoryState], gjapp: JupyterApplication
 ):
     if len(local_state.value.example_measurements) > 0:
         # make the glue data object
@@ -52,7 +52,7 @@ def _add_or_update_example_measurements_to_glue(
 
 
 def _glue_setup(
-    global_state: Reactive[AppState], local_state: Reactive[LocalState]
+    global_state: Reactive[AppState], local_state: Reactive[StoryState]
 ) -> JupyterApplication:
     gjapp = gjapp = JupyterApplication(
         global_state.value.glue_data_collection, global_state.value.glue_session
