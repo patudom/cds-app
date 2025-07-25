@@ -8,7 +8,7 @@ from reacton import ipyvuetify as rv
 from solara import Reactive
 
 from ...remote import LOCAL_API
-from ...story_state import LocalState
+from ...story_state import StoryState
 from ...utils import GALAXY_FOV
 from ...widgets.hubble_wwt import HubbleWWTWidget
 
@@ -22,7 +22,7 @@ START_COORDINATES = SkyCoord(180 * u.deg, 25 * u.deg, frame="icrs")
 
 @solara.component
 def SelectionTool(
-    local_state: Reactive[LocalState],
+    local_state: Reactive[StoryState],
     show_galaxies: bool,
     galaxy_selected_callback: Callable,
     galaxy_added_callback: Callable,
