@@ -44,7 +44,6 @@ from ...helpers.viewer_marker_colors import (
 from ...remote import LOCAL_API
 from ...story_state import (
     StoryState,
-    get_multiple_choice,
     mc_callback,
 )
 from ...utils import (
