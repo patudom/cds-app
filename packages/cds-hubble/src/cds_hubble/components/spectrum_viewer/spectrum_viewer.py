@@ -3,6 +3,9 @@ from typing import Callable, Optional
 import plotly.graph_objects as go
 import reacton.ipyvuetify as rv
 import solara
+from solara import Reactive
+
+from ...story_state import StoryState
 from ...story_state import GalaxyData
 from pandas import DataFrame
 from ...components.spectrum_viewer.plotly_figure import FigurePlotly
@@ -41,6 +44,7 @@ def SpectrumViewer(
     on_spectrum_bounds_changed: Callable = lambda x: None,
     max_spectrum_bounds: Optional[solara.Reactive[list[float]]] = None,
     spectrum_color: str = GENERIC_COLOR,
+    local_state: Reactive[StoryState] = None,
 ):
 
     # spectrum_bounds
@@ -59,7 +63,7 @@ def SpectrumViewer(
         if galaxy_data is None:
             return False
 
-        spec_data = LOCAL_API.load_spectrum_data(galaxy_data)
+        spec_data = LOCAL_API.load_spectrum_data(local_state, galaxy_data)
 
         return Table({"wave": spec_data.wave, "flux": spec_data.flux}).to_pandas()
 
