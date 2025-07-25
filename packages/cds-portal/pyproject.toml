@@ -27,3 +27,4 @@ build-backend = "hatchling.build"
 
 [tool.uv.sources]
 cds-dashboard = { workspace = true }
+cds-core = { workspace = true }

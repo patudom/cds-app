@@ -12,6 +12,7 @@ dependencies = [
     "astropy>=7.0.1",
     "authlib>=1.5.2",
     "cds-core",
+    "deepdiff>=8.5.0",
     "glue-core>=1.22.0",
     "glue-jupyter>=0.23.1",
     "glue-plotly[jupyter]>=0.12.2",
