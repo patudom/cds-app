@@ -20,6 +20,8 @@ from .story_state import StudentMeasurement
 from glue.core import Data
 from numpy import asarray
 
+from deepdiff import DeepDiff
+
 from pathlib import Path
 
 try:
@@ -381,3 +383,20 @@ def dict_diff(d1, d2, path=""):
                 diffs.append(("changed", key_path, (v1, v2)))
 
     return diffs
+
+
+def extract_changed_subtree(old_dict, new_dict):
+    diff = DeepDiff(old_dict, new_dict, view="tree")
+    result = {}
+
+    for change in diff.get("values_changed", []):
+        path = change.path(output_format="list")  # e.g., ['b', 'x']
+        value = change.t2  # new value
+
+        # Build nested dict structure
+        current = result
+        for key in path[:-1]:
+            current = current.setdefault(key, {})
+        current[path[-1]] = value
+
+    return result
