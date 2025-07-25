@@ -216,7 +216,7 @@ class BaseAPI:
                 return None
 
         else:
-            logger.info("Skipping retrieval of Global and Local states.")
+            logger.info("Skipping retrieval of state.")
             story_json = {
                 "app": global_state.value.__class__(
                     student=global_state.value.student,
@@ -225,20 +225,15 @@ class BaseAPI:
                     educator=global_state.value.educator,
                     update_db=global_state.value.update_db,
                 ).model_dump(),
-                "story": local_state.value.__class__(
-                    title=local_state.value.title,
-                    story_id=local_state.value.story_id,
-                    current_step=1,
-                ).as_dict(),
             }
 
         global_state_json = story_json.get("app", {})
-        local_state_json = story_json.get("story", {})
-        global_state_json["story_state"] = local_state_json
+        # local_state_json = story_json.get("story", {})
+        # global_state_json["story_state"] = local_state_json
 
-        self._update_state(global_state, global_state_json)
+        global_state.set(global_state.value.__class__(**global_state_json))
 
-        logger.info("Updated local state from database.")
+        logger.info("Updated state from database.")
 
         return local_state.value
 
@@ -254,11 +249,3 @@ class BaseAPI:
         Ref(state.fields.student.id).set(0)
         Ref(state.fields.classroom.class_info).set({})
         Ref(state.fields.classroom.size).set(0)
-
-    @staticmethod
-    def _update_state(state: Reactive[BaseState], data: dict):
-        print(data)
-        print(state.value.__class__)
-        new_state = state.value.__class__(**data)
-        state.set(new_state)
-        # state.value.__dict__.update(new_state.__dict__)

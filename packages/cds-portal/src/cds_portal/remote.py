@@ -35,10 +35,10 @@ class BaseAPI:
             logger.error("Failed to create hash: user not authenticated.")
             return "User not authenticated"
 
-        userinfo = auth.user.value.get("userinfo")
+        userinfo = auth.user.value.get("userinfo", {})
 
         if not ("cds/email" in userinfo or "cds/name" in userinfo):
-            logger.error("Failed to create hash: not authentication information.")
+            logger.error("Failed to create hash: no authentication information.")
             return
 
         user_ref = userinfo.get("cds/email", userinfo["cds/name"])
@@ -261,7 +261,6 @@ class BaseAPI:
             json={"active": active},
         )
         return r.json()["success"]
-
 
     @staticmethod
     def clear_user(state: Reactive[GlobalState]):

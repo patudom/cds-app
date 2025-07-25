@@ -16,7 +16,7 @@ from cds_core.remote import BaseAPI
 from cds_core.app_state import AppState
 from cds_core.utils import CDSJSONEncoder
 from .story_state import ClassSummary, StudentMeasurement, StudentSummary
-from .story_state import GalaxyData, SpectrumData, LocalState
+from .story_state import GalaxyData, SpectrumData, StoryState
 
 logger = setup_logger("CDS-HUBBLE API")
 
@@ -28,13 +28,13 @@ DEBOUNCE_TIMEOUT = 1
 
 class LocalAPI(BaseAPI):
     def get_app_story_states(
-        self, global_state: Reactive[AppState], local_state: Reactive[LocalState]
+        self, global_state: Reactive[AppState], local_state: Reactive[StoryState]
     ) -> BaseStoryState | None:
 
         return super().get_app_story_states(global_state, local_state)
 
     @cache
-    def get_galaxies(self, local_state: Reactive[LocalState]) -> list[GalaxyData]:
+    def get_galaxies(self, local_state: Reactive[StoryState]) -> list[GalaxyData]:
         galaxy_data_json = self.request_session.get(
             f"{self.API_URL}/{local_state.value.story_id}/galaxies?types=Sp"
         ).json()
@@ -44,7 +44,7 @@ class LocalAPI(BaseAPI):
         return galaxy_data
 
     def load_spectrum_data(
-        self, local_state: Reactive[LocalState], gal_data: GalaxyData
+        self, local_state: Reactive[StoryState], gal_data: GalaxyData
     ) -> SpectrumData | None:
         file_name = f"{gal_data.name.replace('.fits', '')}.fits"
 
@@ -99,7 +99,7 @@ class LocalAPI(BaseAPI):
     def get_measurements(
         self,
         global_state: Reactive[AppState],
-        local_state: Reactive[LocalState],
+        local_state: Reactive[StoryState],
     ) -> list[StudentMeasurement]:
         url = (
             f"{self.API_URL}/{local_state.value.story_id}/measurements/"
@@ -133,7 +133,7 @@ class LocalAPI(BaseAPI):
     def get_sample_measurements(
         self,
         global_state: Reactive[AppState],
-        local_state: Reactive[LocalState],
+        local_state: Reactive[StoryState],
     ) -> list[StudentMeasurement]:
 
         if not global_state.value.update_db or self.is_educator:
@@ -190,7 +190,7 @@ class LocalAPI(BaseAPI):
     def put_measurements(
         self,
         global_state: Reactive[AppState],
-        local_state: Reactive[LocalState],
+        local_state: Reactive[StoryState],
     ):
 
         if not global_state.value.update_db or self.is_educator:
@@ -216,7 +216,7 @@ class LocalAPI(BaseAPI):
         return True
 
     def put_sample_measurements(
-        self, global_state: Reactive[AppState], local_state: Reactive[LocalState]
+        self, global_state: Reactive[AppState], local_state: Reactive[StoryState]
     ):
         if not global_state.value.update_db or self.is_educator:
             logger.info("Skipping DB write")
@@ -250,7 +250,7 @@ class LocalAPI(BaseAPI):
     def get_measurement(
         self,
         global_state: Reactive[AppState],
-        local_state: Reactive[LocalState],
+        local_state: Reactive[StoryState],
         galaxy_id: int,
     ) -> StudentMeasurement:
         logger.info(
@@ -273,7 +273,7 @@ class LocalAPI(BaseAPI):
     def get_sample_measurement(
         self,
         global_state: Reactive[AppState],
-        local_state: Reactive[LocalState],
+        local_state: Reactive[StoryState],
         galaxy_id: int,
     ) -> StudentMeasurement:
         logger.info(
@@ -297,7 +297,7 @@ class LocalAPI(BaseAPI):
     def delete_all_measurements(
         self,
         global_state: Reactive[AppState],
-        local_state: Reactive[LocalState],
+        local_state: Reactive[StoryState],
     ):
         if not global_state.value.update_db or self.is_educator:
             logger.info("Skipping deletion of measurements.")
@@ -321,7 +321,7 @@ class LocalAPI(BaseAPI):
 
     def get_sample_galaxy(
         self,
-        local_state: Reactive[LocalState],
+        local_state: Reactive[StoryState],
     ) -> GalaxyData:
         galaxy_json = self.request_session.get(
             f"{self.API_URL}/{local_state.value.story_id}/sample-galaxy"
@@ -334,7 +334,7 @@ class LocalAPI(BaseAPI):
     def get_class_measurements(
         self,
         global_state: Reactive[AppState],
-        local_state: Reactive[LocalState],
+        local_state: Reactive[StoryState],
     ) -> list[StudentMeasurement]:
         url = (
             f"{self.API_URL}/{local_state.value.story_id}/class-measurements/"
@@ -360,7 +360,7 @@ class LocalAPI(BaseAPI):
     def get_students_completed_measurements_count(
         self,
         global_state: Reactive[AppState],
-        local_state: Reactive[LocalState],
+        local_state: Reactive[StoryState],
     ) -> int:
         if (
             global_state.value.classroom.class_info is None
@@ -379,7 +379,7 @@ class LocalAPI(BaseAPI):
     def get_all_data(
         self,
         global_state: Reactive[AppState],
-        local_state: Reactive[LocalState],
+        local_state: Reactive[StoryState],
     ) -> tuple[list[StudentMeasurement], list[StudentSummary], list[ClassSummary]]:
         url = f"{self.API_URL}/{local_state.value.story_id}/all-data?minimal=True"
         if global_state.value.classroom.class_info is not None:
@@ -420,7 +420,7 @@ class LocalAPI(BaseAPI):
     def put_stage_state(
         self,
         global_state: Reactive[AppState],
-        local_state: Reactive[LocalState],
+        local_state: Reactive[StoryState],
         component_state: Reactive[BaseStageState],
     ):
         if not global_state.value.update_db or self.is_educator:
@@ -450,7 +450,7 @@ class LocalAPI(BaseAPI):
         return True
 
     def put_story_state(
-        self, global_state: Reactive[AppState], local_state: Reactive[LocalState]
+        self, global_state: Reactive[AppState], local_state: Reactive[StoryState]
     ):
         if not global_state.value.update_db or self.is_educator:
             logger.info("Skipping DB write")
@@ -460,7 +460,6 @@ class LocalAPI(BaseAPI):
 
         state = {
             "app": global_state.value.model_dump(),
-            "story": local_state.value.as_dict(),
         }
 
         state_json = json.dumps(state, cls=CDSJSONEncoder)
