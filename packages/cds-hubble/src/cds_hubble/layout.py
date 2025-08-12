@@ -47,20 +47,20 @@ def _load_state(
     Ref(local_state.fields.measurements_loaded).set(True)
 
 
-def _write_state(global_state: Reactive[AppState], local_state: Reactive[StoryState]):
+def _write_state(patch: dict, global_state: Reactive[AppState], local_state: Reactive[StoryState]):
     # Listen for changes in the states and write them to the database
-    put_state = LOCAL_API.put_story_state(global_state, local_state)
+    patch_state = LOCAL_API.patch_story_state(patch, global_state, local_state)
 
     # Be sure to write the measurement data separately since it's stored
     #  in another location in the database
     put_meas = LOCAL_API.put_measurements(global_state, local_state)
     put_samp = LOCAL_API.put_sample_measurements(global_state, local_state)
 
-    if put_state and put_meas and put_samp:
+    if patch_state and put_meas and put_samp:
         logger.info("Wrote state to database.")
     else:
         logger.info(
-            f"Did not write {'story state' if not put_state else ''} "
+            f"Did not write {'story state' if not patch_state else ''} "
             f"{'measurements' if not put_meas else ''} "
             f"{'sample measurements' if not put_samp else ''} "
             f"to database."
@@ -94,17 +94,17 @@ def Layout(
             if len(state_write_queue.value) == 0:
                 continue
 
-            # full_change = {}
-            #
-            # for atom in state_write_queue.value:
-            #     full_change.update(atom)
-            #
-            # from pprint import pprint
-            #
-            # pprint(full_change)
+            full_change = {}
+            
+            for atom in state_write_queue.value:
+                full_change.update(atom)
+            
+            from pprint import pprint
+            
+            pprint(full_change)
 
             # Write the state to the server
-            _write_state(global_state, local_state)
+            _write_state(full_change, global_state, local_state)
             # Clear the queue
             state_write_queue.set([])
 

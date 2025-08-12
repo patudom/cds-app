@@ -476,6 +476,33 @@ class LocalAPI(BaseAPI):
 
         return True
 
+    def patch_story_state(
+        self, patch: dict, global_state: Reactive[AppState], local_state: Reactive[StoryState]
+    ):
+        if not global_state.value.update_db or self.is_educator:
+            logger.info("Skipping DB write")
+            return False
+
+        logger.info("Serializing state into DB.")
+
+        state = {
+            "app": patch,
+        }
+
+        state_json = json.dumps(state, cls=CDSJSONEncoder)
+        r = self.request_session.patch(
+            f"{self.API_URL}/story-state/{global_state.value.student.id}/{local_state.value.story_id}",
+            headers={"Content-Type": "application/json"},
+            data=state_json,
+        )
+
+        if r.status_code != 200:
+            logger.error("Failed to write story state to database.")
+            logger.error(r.text)
+            return False
+
+        return True
+
     def get_example_seed_measurement(self, which="both") -> list[dict[str, Any]]:
         # url = f"{self.API_URL}/{local_state.value.story_id}/sample-measurements"
         # r = self.request_session.get(url)
