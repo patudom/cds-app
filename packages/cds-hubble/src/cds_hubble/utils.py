@@ -21,6 +21,7 @@ from glue.core import Data
 from numpy import asarray
 
 from deepdiff import DeepDiff
+from deepdiff.helper import NotPresent
 
 from pathlib import Path
 
@@ -385,18 +386,33 @@ def dict_diff(d1, d2, path=""):
     return diffs
 
 
-def extract_changed_subtree(old_dict, new_dict):
-    diff = DeepDiff(old_dict, new_dict, view="tree")
-    result = {}
-
-    for change in diff.get("values_changed", []):
-        path = change.path(output_format="list")  # e.g., ['b', 'x']
-        value = change.t2  # new value
+def apply_changes(result, changes):
+    for change in changes:
+        path = change.path(output_format="list")
+        value = change.t2
+        if isinstance(value, NotPresent):
+            value = None
 
         # Build nested dict structure
         current = result
         for key in path[:-1]:
             current = current.setdefault(key, {})
+
         current[path[-1]] = value
+
+
+def extract_changed_subtree(old_dict, new_dict):
+    diff = DeepDiff(old_dict, new_dict, view="tree")
+    result = {}
+
+    change_keys = [
+        "values_changed",
+        "iterable_item_added",
+        "iterable_item_removed",
+    ]
+
+    for key in change_keys:
+        if (changes := diff.get(key, None)) is not None:
+            apply_changes(result, changes)
 
     return result
