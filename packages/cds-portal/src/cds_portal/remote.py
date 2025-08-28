@@ -52,11 +52,21 @@ class BaseAPI:
     @property
     def student_info(self):
         r = self.request_session.get(f"{self.API_URL}/students/{self.hashed_user}")
+
+        if r.status_code != 200:
+            logger.error(f"Failed to fetch student info: {r.text}")
+            return None
+
         return r.json().get("student", None)
 
     @property
     def educator_info(self):
         r = self.request_session.get(f"{self.API_URL}/educators/{self.hashed_user}")
+
+        if r.status_code != 200:
+            logger.error(f"Failed to fetch educator info: {r.text}")
+            return None
+
         return r.json().get("educator", None)
 
     @property
