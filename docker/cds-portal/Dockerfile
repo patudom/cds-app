@@ -20,4 +20,5 @@ RUN uv pip install packages/cds-portal --system
 
 EXPOSE 8865
 
-CMD ["solara", "run", "cds_portal.pages", "--host=0.0.0.0", "--port=8865", "--no-open", "--production"]
+#CMD ["solara", "run", "cds_portal.pages", "--host=0.0.0.0", "--port=8865", "--no-open", "--production", "--proxy-headers", "--workers", "1"]
+CMD ["uvicorn", "solara.server.starlette:app", "--host", "0.0.0.0", "--port", "8865", "--proxy-headers"]
