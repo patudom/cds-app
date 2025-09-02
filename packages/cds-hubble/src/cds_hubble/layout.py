@@ -38,6 +38,8 @@ def _load_state(
     # Retrieve the student's app and local states
     LOCAL_API.get_app_story_states(global_state, local_state)
 
+    logger.info(local_state)
+
     # Load in the student's measurements
     measurements = LOCAL_API.get_measurements(global_state, local_state)
     sample_measurements = LOCAL_API.get_sample_measurements(global_state, local_state)
@@ -91,7 +93,7 @@ def Layout(
             # Sleep for 2 seconds
             time.sleep(2)
 
-            if len(state_write_queue.value) == 0:
+            if (not LOCAL_API.initial_load_completed) or len(state_write_queue.value) == 0:
                 continue
 
             full_change = {}
@@ -101,6 +103,7 @@ def Layout(
             
             from pprint import pprint
             
+            logger.info("FULL CHANGE")
             pprint(full_change)
 
             # Write the state to the server
