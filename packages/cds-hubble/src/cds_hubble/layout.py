@@ -22,6 +22,8 @@ def _load_state(
     logger.info("Clearing local states.")
     local_state.set(local_state.value.__class__())
 
+    logger.info(f"Student ID: {global_state.value.student.id}")
+
     student_id = Ref(global_state.fields.student.id)
 
     if student_id.value is None:
@@ -38,7 +40,8 @@ def _load_state(
     # Retrieve the student's app and local states
     LOCAL_API.get_app_story_states(global_state, local_state)
 
-    logger.info(local_state)
+    logger.info(local_state.value)
+    logger.info(f"Student ID after load: {global_state.value.student.id}")
 
     # Load in the student's measurements
     measurements = LOCAL_API.get_measurements(global_state, local_state)
@@ -69,6 +72,8 @@ def _write_state(patch: dict, global_state: Reactive[AppState], local_state: Rea
         )
 
 
+
+
 def Layout(
     children=[],
     global_state: Reactive[AppState] = None,
@@ -76,11 +81,21 @@ def Layout(
 ):
     BaseSetup(remote_api=LOCAL_API, global_state=global_state, local_state=local_state)
 
-    # Load stored state from the server
-    solara.use_memo(lambda: _load_state(global_state, local_state), dependencies=[])
-
     # Subscribe to changes to the state and write to server
     state_write_queue = solara.use_reactive([])
+
+
+    def _state_setup(
+        global_state: Reactive[AppState] = None,
+        local_state: Reactive[StoryState] = None,
+    ):
+        _load_state(global_state, local_state)
+        import json
+        logger.info(json.dumps(global_state.value.model_dump()))
+        state_write_queue.set(state_write_queue.value + [global_state.value.model_dump()])
+
+    # Load stored state from the server
+    solara.use_memo(lambda: _state_setup(global_state, local_state), dependencies=[])
 
     def _wrap_write_state(new: AppState, old: AppState):
         diff = extract_changed_subtree(old.as_dict(), new.as_dict())
@@ -97,7 +112,7 @@ def Layout(
                 continue
 
             full_change = {}
-            
+
             for atom in state_write_queue.value:
                 full_change.update(atom)
             

@@ -31,6 +31,8 @@ def Page(app_state: Reactive[AppState]):
 
     exploration_tool = solara.use_memo(_get_exploration_tool, dependencies=[])
 
+    logger.info("Created exploration tool")
+
     def go_to_location(options):
         index = options.get("index", 0)
         tool = exploration_tool  # exploration_tools[index]

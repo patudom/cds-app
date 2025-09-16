@@ -8,7 +8,8 @@ from solara import Reactive
 from solara.lab import Ref
 from solara_enterprise import auth
 
-from .base_states import BaseAppState, BaseStoryState, BaseStageState, BaseState
+from cds_core.app_state import Student
+from .base_states import BaseAppState, BaseStoryState, BaseStageState
 from .logger import setup_logger
 from .utils import CDSJSONEncoder
 
@@ -203,6 +204,7 @@ class BaseAPI:
         global_state: Reactive[BaseAppState],
         local_state: Reactive[BaseStoryState],
     ) -> BaseStoryState | None:
+        student_id = global_state.value.student.id
         if global_state.value.update_db and not self.is_educator:
             story_json = (
                 self.request_session.get(
@@ -214,13 +216,14 @@ class BaseAPI:
             )
 
             logger.info("Story JSON")
-            logger.info(story_json)
+            logger.info(json.dumps(story_json))
 
             if story_json is None:
                 logger.error(
                     f"Failed to retrieve state for story {local_state.value.story_id} "
                     f"for user {global_state.value.student.id}."
                 )
+                self.initial_load_completed = True
                 return None
 
         else:
@@ -239,7 +242,13 @@ class BaseAPI:
         # local_state_json = story_json.get("story", {})
         # global_state_json["story_state"] = local_state_json
 
-        global_state.set(global_state.value.__class__(**global_state_json))
+        if global_state_json:
+            global_state_json["student"] = { "id": student_id }
+            global_state.set(global_state.value.__class__(**global_state_json))
+
+        local_state_json = global_state_json.get("story_state", {})
+        if local_state_json:
+            local_state.set(local_state.value.__class__(**local_state_json))
 
         logger.info("Updated state from database.")
 
