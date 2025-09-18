@@ -341,7 +341,7 @@ resource "aws_cloudfront_distribution" "apps" {
 
     custom_header {
       name  = "X-CloudFront-Secret"
-      value = var.cloudfront_secret
+      value = local.cloudfront_secret
     }
   }
 
@@ -573,7 +573,7 @@ resource "aws_ecs_task_definition" "cds_portal" {
   container_definitions = jsonencode([
     {
       name  = "cds-portal"
-      image = var.cds_portal_image
+      image = "${aws_ecr_repository.cds_portal.repository_url}:latest"
       portMappings = [
         {
           containerPort = 8865
@@ -672,7 +672,7 @@ resource "aws_ecs_task_definition" "cds_hubble" {
   container_definitions = jsonencode([
     {
       name  = "cds-hubble"
-      image = var.cds_hubble_image
+      image = "${aws_ecr_repository.cds_hubble.repository_url}:latest"
       portMappings = [
         {
           containerPort = 8765
@@ -935,4 +935,28 @@ resource "aws_appautoscaling_policy" "cds_hubble_memory" {
     scale_in_cooldown  = 300
     scale_out_cooldown = 300
   }
+}
+
+# Generate a random secret for CloudFront
+resource "random_password" "cloudfront_secret" {
+  count   = var.cloudfront_secret == "" ? 1 : 0
+  length  = 32
+  special = true
+}
+
+# Store the secret in Parameter Store for reference
+resource "aws_ssm_parameter" "cloudfront_secret" {
+  name  = "/${var.environment}/cloudfront/secret"
+  type  = "SecureString"
+  value = var.cloudfront_secret != "" ? var.cloudfront_secret : random_password.cloudfront_secret[0].result
+
+  tags = {
+    Name        = "${var.environment}-cloudfront-secret"
+    Environment = var.environment
+  }
+}
+
+# Use the secret in CloudFront
+locals {
+  cloudfront_secret = var.cloudfront_secret != "" ? var.cloudfront_secret : random_password.cloudfront_secret[0].result
 }

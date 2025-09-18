@@ -9,6 +9,6 @@ cds_portal_max_capacity = 3
 cds_hubble_min_capacity = 1
 cds_hubble_max_capacity = 3
 
-# CloudFront security - Generate a secure random string for production use
-# You can generate one with: openssl rand -base64 32
-cloudfront_secret = "CHANGE-THIS-TO-A-SECURE-RANDOM-VALUE-BEFORE-DEPLOYMENT"
+# GitHub repository for CI/CD
+github_repository = "nmearl/cds-app"
+github_branch = "main"

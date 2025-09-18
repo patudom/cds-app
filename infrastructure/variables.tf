@@ -47,8 +47,25 @@ variable "cds_hubble_max_capacity" {
 }
 
 variable "cloudfront_secret" {
-  description = "Secret value for CloudFront custom header to prevent direct ALB access"
+  description = "Secret value for CloudFront custom header. Leave empty to auto-generate."
   type        = string
   sensitive   = true
-  default     = "change-me-to-a-secure-random-string"
+  default     = ""
+
+  validation {
+    condition     = var.cloudfront_secret == "" || length(var.cloudfront_secret) >= 32
+    error_message = "CloudFront secret must be either empty (for auto-generation) or at least 32 characters long."
+  }
+}
+
+variable "github_repository" {
+  description = "GitHub repository in the format 'owner/repo'"
+  type        = string
+  default     = "nmearl/cds-app"
+}
+
+variable "github_branch" {
+  description = "GitHub branch to track for changes"
+  type        = string
+  default     = "main"
 }
