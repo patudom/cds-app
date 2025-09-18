@@ -35,10 +35,10 @@ class BaseAPI:
             logger.error("Failed to create hash: user not authenticated.")
             return "User not authenticated"
 
-        userinfo = auth.user.value.get("userinfo")
+        userinfo = auth.user.value.get("userinfo", {})
 
         if not ("cds/email" in userinfo or "cds/name" in userinfo):
-            logger.error("Failed to create hash: not authentication information.")
+            logger.error("Failed to create hash: no authentication information.")
             return
 
         user_ref = userinfo.get("cds/email", userinfo["cds/name"])
@@ -52,11 +52,21 @@ class BaseAPI:
     @property
     def student_info(self):
         r = self.request_session.get(f"{self.API_URL}/students/{self.hashed_user}")
+
+        if r.status_code != 200:
+            logger.error(f"Failed to fetch student info: {r.text}")
+            return None
+
         return r.json().get("student", None)
 
     @property
     def educator_info(self):
         r = self.request_session.get(f"{self.API_URL}/educators/{self.hashed_user}")
+
+        if r.status_code != 200:
+            logger.error(f"Failed to fetch educator info: {r.text}")
+            return None
+
         return r.json().get("educator", None)
 
     @property
@@ -261,7 +271,6 @@ class BaseAPI:
             json={"active": active},
         )
         return r.json()["success"]
-
 
     @staticmethod
     def clear_user(state: Reactive[GlobalState]):
