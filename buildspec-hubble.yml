@@ -16,9 +16,9 @@ phases:
     commands:
       - echo Build started on `date`
       - echo Building the Docker image for CDS Hubble...
-      - cd docker/cds-hubble
-      - docker build -t $REPOSITORY_URI:latest .
-      - docker tag $REPOSITORY_URI:latest $REPOSITORY_URI:$IMAGE_TAG
+      - docker build -t cds-hubble:latest -f docker/cds-hubble/Dockerfile .
+      - docker tag cds-hubble:latest $REPOSITORY_URI:latest
+      - docker tag cds-hubble:latest $REPOSITORY_URI:$IMAGE_TAG
   post_build:
     commands:
       - echo Build completed on `date`
