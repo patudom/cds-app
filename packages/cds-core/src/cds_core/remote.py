@@ -198,6 +198,7 @@ class BaseAPI:
         global_state: Reactive[BaseAppState],
         local_state: Reactive[BaseStoryState],
     ) -> BaseStoryState | None:
+        student_id = global_state.value.student.id
         if global_state.value.update_db and not self.is_educator:
             story_json = (
                 self.request_session.get(
