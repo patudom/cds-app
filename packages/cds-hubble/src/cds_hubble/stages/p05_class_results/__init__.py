@@ -752,6 +752,13 @@ def Page(app_state: Reactive[AppState]):
                 with rv.Col():
                     pass
                 with rv.Col():
+                    # We show the free responses from the previous stage, so we need to
+                    #  get the explore_data stage state to access these responses
+                    stage_4_state = Ref(
+                        cast(
+                            StageState, story_state.fields.stage_states["explore_data"]
+                        )
+                    )
                     with rv.Col(cols=10, offset=1):
                         UncertaintySlideshow(
                             event_on_slideshow_finished=lambda _: Ref(
@@ -759,19 +766,19 @@ def Page(app_state: Reactive[AppState]):
                             ).set(True),
                             step=stage_state.value.uncertainty_state.step,
                             max_step_completed=stage_state.value.uncertainty_state.max_step_completed,
-                            age_calc_short1=stage_state.value.free_responses.get(
+                            age_calc_short1=stage_4_state.value.free_responses.get(
                                 "shortcoming-1",
                                 FreeResponse(tag="shortcoming-1"),
                             )
                             .model_dump()
                             .get("response"),
-                            age_calc_short2=stage_state.value.free_responses.get(
+                            age_calc_short2=stage_4_state.value.free_responses.get(
                                 "shortcoming-2",
                                 FreeResponse(tag="shortcoming-2"),
                             )
                             .model_dump()
                             .get("response"),
-                            age_calc_short_other=stage_state.value.free_responses.get(
+                            age_calc_short_other=stage_4_state.value.free_responses.get(
                                 "other-shortcomings",
                                 FreeResponse(tag="other-shortcomings"),
                             )
