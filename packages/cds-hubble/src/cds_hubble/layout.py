@@ -82,8 +82,8 @@ def Layout(
             # Retrieve current state
             old_state = global_state.value.as_dict()
 
-            # Sleep for 5 seconds
-            time.sleep(5)
+            # Sleep for 2 seconds
+            time.sleep(2)
 
             # Retrieve state after sleep
             new_state = global_state.value.as_dict()
