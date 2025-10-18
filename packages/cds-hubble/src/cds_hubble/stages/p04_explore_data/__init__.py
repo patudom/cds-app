@@ -294,7 +294,7 @@ def Page(app_state: Reactive[AppState]):
 
         current_step.subscribe(_on_marker_update)
 
-    solara.use_memo(_state_callback_setup, dependencies=[])
+    solara.use_memo(_state_callback_setup, dependencies=[])  # noqa: SH101
 
     if len(story_state.value.measurements) == 0 or not all(
         m.completed for m in story_state.value.measurements

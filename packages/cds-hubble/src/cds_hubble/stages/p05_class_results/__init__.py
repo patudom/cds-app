@@ -494,7 +494,7 @@ def Page(app_state: Reactive[AppState]):
         current_step.subscribe(update_layer_viewer_visibilities)
         current_step.subscribe(_on_marker_updated)
 
-    solara.use_memo(_state_callback_setup, dependencies=[])
+    solara.use_memo(_state_callback_setup, dependencies=[])  # noqa: SH101
 
     line_fit_tool = viewers["layer"].toolbar.tools["hubble:linefit"]
     add_callback(line_fit_tool, "active", _on_best_fit_line_shown)
@@ -540,7 +540,7 @@ def Page(app_state: Reactive[AppState]):
         class_low_age.set(round(min(all_class_summ_data["age_value"])))
         class_high_age.set(round(max(all_class_summ_data["age_value"])))
 
-    solara.use_memo(_parse_component_state, dependencies=[])
+    solara.use_memo(_parse_component_state, dependencies=[])  # noqa: SH101
 
     # --------------------- Row 1: OUR DATA HUBBLE VIEWER -----------------------
     if stage_state.value.current_step_between(

@@ -5,6 +5,7 @@ from deepdiff import DeepDiff
 from solara import Reactive
 from solara.lab import Ref
 
+
 from cds_core.app_state import AppState
 from cds_core.layout import BaseLayout, BaseSetup
 from cds_core.logger import setup_logger
@@ -100,8 +101,7 @@ def Layout(
 
     solara.lab.use_task(_consume_write_state, dependencies=[])
 
-    loaded_states = solara.use_reactive(False)
-    route_restored = Ref(local_state.fields.route_restored)
+    route_restored = solara.use_reactive(False)
 
     router = solara.use_router()
     location = solara.use_context(solara.routing._location_context)
@@ -123,7 +123,11 @@ def Layout(
 
     solara.use_effect(_store_user_location, dependencies=[route_current])
 
+    # TODO: This is a temporary fix to restore the user's location after loading
+    #  their state from the database. For some reason, the router resets several
+    #  times during this page's rendering, so we just time it out for now.
     def _restore_user_location():
+        time.sleep(0.5)
         if not route_restored.value:
             if (
                 local_state.value.last_route is not None
@@ -133,10 +137,10 @@ def Layout(
                     f"Restoring path location to `{local_state.value.last_route}`"
                 )
                 push_to_route(router, location, local_state.value.last_route)
-            else:
-                route_restored.set(True)
 
-    solara.use_memo(_restore_user_location)
+            route_restored.set(True)
+
+    solara.lab.use_task(_restore_user_location, dependencies=[])
 
     # The rendering takes a moment while the route resolves, this can appear as
     #  a flicker before the true page loads. Here, we hide the page until the
