@@ -83,7 +83,7 @@ def FreeResponseSummary(roster: Reactive[Roster] | Roster, stage_labels=[]):
     
     question_text = roster.question_keys() # {'key': {'text': 'question text', 'shorttext': 'short question text'}}
     
-    if not roster.new_db:
+    if not (roster.state_version == 'solara'):
         stages = list(filter(lambda s: s.isdigit(),sorted(fr_questions.keys())))
         if len(stages) == 0:
             stages = list(filter(lambda s: s != 'student_id',fr_questions.keys()))
@@ -102,7 +102,7 @@ def FreeResponseSummary(roster: Reactive[Roster] | Roster, stage_labels=[]):
                     label = str(stage).replace('_', ' ').capitalize()
                 question_responses = roster.l2d(fr_questions[stage]) # {'key': ['response1', 'response2',...]}
                 with rv.Container(id=f"fr-summary-stage-{stage}"):
-                    if roster.new_db:
+                    if (roster.state_version == 'solara'):
                         solara.Markdown(f"### Stage: {label}")
                     else:
                         solara.Markdown(f"### Stage {stage}: {label}")
@@ -145,7 +145,7 @@ def FreeResponseQuestionSingleStudent(roster: Reactive[Roster] | Roster, sid = N
             label = stage_labels[index]
         else:
             label = k
-        if roster.new_db:
+        if (roster.state_version == 'solara'):
             solara.Markdown(f"### Stage: {label}")
         else:
             solara.Markdown(f"### Stage {k}: {label}")

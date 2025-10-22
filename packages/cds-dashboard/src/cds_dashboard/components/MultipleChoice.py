@@ -4,7 +4,7 @@ import reacton.ipyvuetify as rv
 
 import pandas as pd
 from pandas import DataFrame, Series
-from ..database.Query import QueryCosmicDSApi as Query
+from ..cds_api_utils.Query import QueryCosmicDSApi as Query
 import plotly.express as px
 from .Collapsible import Collapsible
 
@@ -67,7 +67,7 @@ def MultipleChoiceStageSummary(roster: Reactive[Roster] | Roster, stage = None, 
     tries_1d = Series(tries_1d).dropna()
     
     with solara.GridFixed(columns=1, justify_items='stretch', align_items='start') as main:
-        if roster.new_db:
+        if (roster.state_version == 'solara'):
             solara.Markdown(f"### Stage: {label}")
         else:
             solara.Markdown(f"### Stage {stage}: {label}")
@@ -145,7 +145,7 @@ def MultipleChoiceSummary(roster: Reactive[Roster] | Roster, stage_labels=[]):
     mc_responses = roster.multiple_choice_questions()
     
     # mc_responses is a dict that looks like {'1': [{q1: {tries:0, choice: 0, score: 0}...}..]}
-    if not roster.new_db:
+    if not (roster.state_version == 'solara'):
         stages = list(filter(lambda s: s.isdigit(),sorted(list(sorted(mc_responses.keys())))))
         if len(stages) == 0:
             stages = list(filter(lambda s: s != 'student_id',mc_responses.keys()))
@@ -223,7 +223,7 @@ def MultipleChoiceQuestionSingleStage(roster: Reactive[Roster] | Roster, df = No
                         - Completed {} out of {} multiple choice questions
                         - Multiple Choice Score: {}/{}
                         - Took on average {} tries to complete the multiple choice questions
-                        """.format('' if roster.new_db else stage, label,  completed, total, points, total_points, avg_tries))    
+                        """.format('' if (roster.state_version == 'solara') else stage, label,  completed, total, points, total_points, avg_tries))    
         
     with solara.Row():
         with solara.Columns([1,1]):

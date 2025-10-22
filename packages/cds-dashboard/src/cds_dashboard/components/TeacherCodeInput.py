@@ -1,5 +1,5 @@
 import solara
-from ..database.Query import QueryCosmicDSApi
+from ..cds_api_utils.Query import QueryCosmicDSApi
 import json
 import reacton.ipyvuetify as rv
 from typing import Optional

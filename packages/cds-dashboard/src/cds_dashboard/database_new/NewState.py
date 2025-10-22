@@ -1,15 +1,11 @@
-import warnings
-warnings.filterwarnings('ignore') # ignore warnings
-from .markers import stage_marker_counts
-
 from numpy import nan, mean
-from typing import Dict, List, Optional, Union, Any
+from typing import Dict, List, Optional, Union, Any, cast
 
-from .types import ProcessedStage, ProcessedMCScore
+from .types import ProcessedStage, ProcessedMCScore, StateInterface
 
 from ..logger_setup import logger
 
-class State:
+class State(StateInterface):
     # markers = markers
     
 
@@ -180,3 +176,21 @@ class State:
     @property
     def percent_completion(self) -> float:
         return self.total_fraction_completed()['percent']
+
+
+
+class MonoRepoState(State):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+    
+
+    @property
+    def max_stage_index(self) -> int:
+        # find the last stage with a max_step > 1
+        i = 0
+        names = list(self.stages.keys())
+        for k in names:
+            max_step =  cast(int, self.stages[k]['max_step'])
+            if max_step > 1:
+                i = max(i, int(self.stages[k]['index']))
+        return i

@@ -9,7 +9,7 @@ import reacton.ipyvuetify as rv
 from .class_report import Roster
 from typing import cast, Any, Dict, List
 
-from .database.Query import QueryCosmicDSApi
+from .cds_api_utils.Query import QueryCosmicDSApi
 
 
 from .components.RefreshClass import RefreshClass

@@ -1,8 +1,7 @@
 import pandas as pd
-from .database.nested_dataframe import flatten
-from .database.State import State
-from .database.Query import QueryCosmicDSApi
-from .database_new.NewState import State as NewState
+from .cds_api_utils.nested_dataframe import flatten
+from .cds_api_utils.Query import QueryCosmicDSApi
+from .state_adapters import StateAdapterFactory
 import time
 HUBBLE_ROUTE_PATH = "hubbles_law"
 
@@ -11,29 +10,15 @@ from math import nan
 
 from .utils import l2d, convert_column_of_dates_to_datetime, get_or_none
 
-from typing import List, Dict, cast, Optional, Any, Union, TypeVar, overload, TYPE_CHECKING, TypedDict
-from .database.types import (
-    StateInterface,
-    OldRosterEntry,
-    NewRosterEntry as ImportedNewRosterEntry,
-    OldRoster,
-    NewRoster as ImportedNewRoster,
-    RosterAttributes,
-    ProcessedState as ImportedProcessedState,
-    OldStudentStoryState,
+from typing import List, Dict, cast, Optional, Any, Union, TypedDict
+from .common_types import StateInterface
+from .database.old_types import (
     StudentEntryList,
     MCScore,
     EmptyScoreOrResponse,
     FreeResponses,
 )
-from .database_new.types import (
-    NewStudentStoryState,
-    StudentEntry as NewRosterEntry,
-    NewRoster,
-    ProcessedState,
-    StoryState as NewStoryState,
-    AppState
-)
+
 
 from .cr_types import HubbleData, ProgressSummary, QuestionInfo, MeasurementStatus
 
@@ -60,6 +45,10 @@ class Student():
 
 class StudentIDList(TypedDict):
     student_id: List[int]
+    
+# Database versions
+# Version 1: class_id < 215
+# Version 2: class_id >= 335
 
 
 class Roster():
@@ -78,10 +67,7 @@ class Roster():
 
         self.class_id = class_id
         logger.info(f"Creating roster for {class_id}")
-
-        self.new_db = class_id >= 215 if class_id is not None else False
-        if self.new_db:
-            logger.info("Using new database scheme")
+            
 
         if query is None:
             self.query = QueryCosmicDSApi(class_id=class_id, story=HUBBLE_ROUTE_PATH)
@@ -89,6 +75,13 @@ class Roster():
             self.query = query
             query.class_id = class_id
             query.story = HUBBLE_ROUTE_PATH
+        
+
+        if class_id is not None:
+            self.adapter = StateAdapterFactory(self.query, class_id)
+    
+        # class_id is I think handled gracefully by the app via an error message
+        
         self.data = None
         self.student_data: Dict[int, Any] = {}
         self.class_summary = None
@@ -100,96 +93,22 @@ class Roster():
         if other.short_report() is None:
             return False
         return self.short_report() == other.short_report()
+    
+    @property
+    def state_version(self):
+        if self.class_id is None or self.class_id < 183:
+            return 'invalid'
+        elif self.class_id >= 183 and self.class_id < 215:
+            return 'legacy'
+        elif self.class_id >= 215 and self.class_id < 335:
+            return 'solara'
+        else:
+            return 'monorepo'
 
     @staticmethod
     def flatten_dict(d):
         return flatten(d)
 
-    @staticmethod
-    def fix_mc_scoring(roster):
-        for i, student in enumerate(roster):
-            count = 0
-            story_state = student['story_state']
-            mc_scoring = story_state['mc_scoring']
-            for stage, scores in mc_scoring.items():
-                for key, value in scores.items():
-                    if value['tries'] == 0:
-                        count += 1
-                        mc_scoring[stage][key]['score'] = 10
-                        mc_scoring[stage][key]['tries'] = 1
-            roster[i]['story_state']['mc_scoring'] = mc_scoring
-        return roster
-
-    @staticmethod
-    def dict_by_stage(data):
-        stages = set([value['stage'] for value in data.values() if 'stage' in value.keys()])
-        if len(stages) == 0:
-            logger.debug('No stages found')
-            return data
-        new_data = {}
-        for stage in stages:
-            new_data[stage] = {
-                key: value
-                for key, value in data.items() if 'stage' in value and value['stage'] == stage
-            }
-        return new_data
-
-    def fix_new_story_state(self, roster: List[NewRosterEntry]) -> List[OldRosterEntry]:
-        """
-        Transforms the story state structure from the new format (>= class_id 215) to the common format
-        
-        
-        """
-        for i, student in enumerate(roster):
-            # Cast to proper types to help the type checker
-            typed_student = cast(NewRosterEntry, student)
-            story_state = cast(NewStudentStoryState, typed_student['story_state'])
-
-            # Store app state separately
-            roster[i]['app_state'] = cast(Dict, story_state['app'])
-
-            # Replace story_state with just the story part
-            roster[i]['story_state'] = story_state['story']  # type: ignore -- we don't use the mis-matched parameters
-
-            # Ensure student_id is propagated
-            roster[i]['student_id'] = student['student_id']
-
-            # Process free responses
-            # try:
-            free_responses_dict = story_state['story']['free_responses'].copy()
-            # except:
-            # breakpoint()
-            if 'responses' in free_responses_dict:
-                free_responses = free_responses_dict.pop('responses')
-                responses = self.dict_by_stage(free_responses)
-                responses = {
-                    stage_key: {q_key: q_value.get('response', '')
-                                for q_key, q_value in stage_value.items()}
-                    for stage_key, stage_value in responses.items()
-                }
-                cast(OldStudentStoryState, roster[i]['story_state'])['responses'] = responses
-
-            # Remove free_responses after extraction
-            if 'free_responses' in roster[i]['story_state']:
-                roster[i]['story_state'].pop('free_responses')
-
-            # Process multiple choice scoring
-            mc_scoring_dict = story_state['story']['mc_scoring'].copy()
-            if 'scores' in mc_scoring_dict:
-                mc_scoring = mc_scoring_dict.pop('scores')
-                roster[i]['story_state']['mc_scoring'] = self.dict_by_stage(mc_scoring)
-
-        return cast(List[OldRosterEntry], roster)
-
-    def include_stages(self):
-        """
-        Adds stage information to the story state for newer database versions
-        
-        
-        """
-        for i, student in enumerate(self.roster):
-            stages = self.query.get_stages(student['student_id'])
-            cast(OldStudentStoryState, self.roster[i]['story_state'])['stages'] = stages
 
     def grab_data(self) -> None:
         """
@@ -202,12 +121,8 @@ class Roster():
         # Get roster data from API
         api_roster = self.query.get_roster()
 
-        # Cast to appropriate type based on class_id
-        if self.new_db:
-            self.roster = self.fix_new_story_state(api_roster)
-            self.include_stages()
-        else:
-            self.roster = cast(List[OldRosterEntry], api_roster)
+        # transform roster data to an approrpriate shape
+        self.roster = self.adapter.transform_roster(api_roster)
 
         self.data = None
 
@@ -257,19 +172,6 @@ class Roster():
 
         self.last_modified = cast(Dict, new_out['last_modified'])
 
-        # # Create processed state objects for all students
-        # if self.new_db:
-        #     self.new_story_state = [NewState(student['story_state']) for student in self.roster]
-        # else:
-        #     self.new_story_state = [State(student['story_state']) for student in self.roster]
-
-        # # Calculate max stage values across all students
-        # if len(self.new_story_state) > 0:
-        #     self.max_stage_index = max([state.max_stage_index for state in self.new_story_state])
-        #     self.max_marker = max([state.max_marker for state in self.new_story_state])
-        # else:
-        #     self.max_stage_index = 0
-        #     self.max_marker = 0
 
     def l2d(self, list_of_dicts, fill_val=None):
         return l2d(list_of_dicts, fill_val)
@@ -304,7 +206,7 @@ class Roster():
                 return nan if (sum(x**2) == 0) else (sum(x * y) / sum(x**2))
 
             def slope2age(h0):
-                return (1 / (h0 * u.km / u.s / u.Mpc)).to(u.Gyr).value
+                return (1 / (h0 * u.km / u.s / u.Mpc)).to(u.Gyr).value # pyright: ignore[reportAttributeAccessIssue]
 
             H0 = []
             Age = []
@@ -401,9 +303,6 @@ class Roster():
             return self._fr_questions
 
         if len(self.roster) > 0:
-            # if self.new_db:
-
-            #     out = l2d(self.story_state['responses'])
             logger.debug(self._story_state['responses'])
             out = l2d(self._story_state['responses'])
             out.update({'student_id': self.student_ids})
@@ -578,10 +477,9 @@ class Roster():
         
         
         """
-        if self.new_db:
-            return cast(StateInterface, NewState(student['story_state']))
-        else:
-            return cast(StateInterface, State(student['story_state']))
+        # Use adapter to get the correct State class
+        StateClass = self.adapter.state_class
+        return cast(StateInterface, StateClass(student['story_state']))
 
     @property
     def out_of(self):
@@ -606,8 +504,6 @@ class Roster():
 
     @property
     def max_stage_index(self):
-        if hasattr(self, '_max_stage_index'):
-            return self._max_stage_index
         if len(self.roster) == 0:
             return None
         max_stage = []
