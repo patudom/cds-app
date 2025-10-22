@@ -1029,12 +1029,12 @@ def Page(app_state: Reactive[AppState]):
         ),
         state_view={
             "free_response_a": stage_state.value.free_responses.get(
-                "best-guess-age", FreeResponse(tag="best-guess-age").model_dump()
-            ),
+                "best-guess-age", FreeResponse(tag="best-guess-age")
+            ).model_dump(),
             # 'best_guess_answered': local_state.value.question_completed("best-guess-age"),
             "free_response_b": stage_state.value.free_responses.get(
-                "my-reasoning", FreeResponse(tag="my-reasoning").model_dump()
-            ),
+                "my-reasoning", FreeResponse(tag="my-reasoning")
+            ).model_dump(),
         },
     )
 
@@ -1052,15 +1052,15 @@ def Page(app_state: Reactive[AppState]):
         ),
         state_view={
             "free_response_a": stage_state.value.free_responses.get(
-                "likely-low-age", FreeResponse(tag="likely-low-age").model_dump()
-            ),
+                "likely-low-age", FreeResponse(tag="likely-low-age")
+            ).model_dump(),
             "free_response_b": stage_state.value.free_responses.get(
-                "likely-high-age", FreeResponse(tag="likely-high-age").model_dump()
-            ),
+                "likely-high-age", FreeResponse(tag="likely-high-age")
+            ).model_dump(),
             # 'high_low_answered': local_state.value.question_completed("likely-low-age") and local_state.value.question_completed("likely-high-age"),
             "free_response_c": stage_state.value.free_responses.get(
-                "my-reasoning-2", FreeResponse(tag="my-reasoning-2").model_dump()
-            ),
+                "my-reasoning-2", FreeResponse(tag="my-reasoning-2")
+            ).model_dump(),
         },
     )
 
