@@ -5,7 +5,6 @@ from deepdiff import DeepDiff
 from solara import Reactive
 from solara.lab import Ref
 
-
 from cds_core.app_state import AppState
 from cds_core.layout import BaseLayout, BaseSetup
 from cds_core.logger import setup_logger
@@ -23,6 +22,8 @@ def _load_state(
     logger.info("Clearing local states.")
     local_state.set(local_state.value.__class__())
 
+    logger.info(f"Student ID: {global_state.value.student.id}")
+
     student_id = Ref(global_state.fields.student.id)
 
     if student_id.value is None:
@@ -39,6 +40,9 @@ def _load_state(
     # Retrieve the student's app and local states
     LOCAL_API.get_app_story_states(global_state, local_state)
 
+    logger.info(local_state.value)
+    logger.info(f"Student ID after load: {global_state.value.student.id}")
+
     # Load in the student's measurements
     measurements = LOCAL_API.get_measurements(global_state, local_state)
     sample_measurements = LOCAL_API.get_sample_measurements(global_state, local_state)
@@ -48,20 +52,20 @@ def _load_state(
     Ref(local_state.fields.measurements_loaded).set(True)
 
 
-def _write_state(global_state: Reactive[AppState], local_state: Reactive[StoryState]):
+def _write_state(patch: dict, global_state: Reactive[AppState], local_state: Reactive[StoryState]):
     # Listen for changes in the states and write them to the database
-    put_state = LOCAL_API.put_story_state(global_state, local_state)
+    patch_state = LOCAL_API.patch_story_state(patch, global_state, local_state)
 
     # Be sure to write the measurement data separately since it's stored
     #  in another location in the database
     put_meas = LOCAL_API.put_measurements(global_state, local_state)
     put_samp = LOCAL_API.put_sample_measurements(global_state, local_state)
 
-    if put_state and put_meas and put_samp:
+    if patch_state and put_meas and put_samp:
         logger.info("Wrote state to database.")
     else:
         logger.info(
-            f"Did not write {'story state' if not put_state else ''} "
+            f"Did not write {'story state' if not patch_state else ''} "
             f"{'measurements' if not put_meas else ''} "
             f"{'sample measurements' if not put_samp else ''} "
             f"to database."
@@ -97,7 +101,7 @@ def Layout(
                 continue
 
             # Write the state to the server
-            _write_state(global_state, local_state)
+            _write_state(diff, global_state, local_state)
 
     solara.lab.use_task(_consume_write_state, dependencies=[])
 
