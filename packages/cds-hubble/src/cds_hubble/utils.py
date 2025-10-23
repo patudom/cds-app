@@ -409,6 +409,7 @@ def extract_changed_subtree(old_dict, new_dict):
         "values_changed",
         "iterable_item_added",
         "iterable_item_removed",
+        "dictionary_item_added",
     ]
 
     for key in change_keys:
