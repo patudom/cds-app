@@ -217,10 +217,7 @@ def Page(app_state: Reactive[AppState]):
     current_step = Ref(stage_state.fields.current_step)
 
     # Load class data if we're past the waiting room and haven't loaded it yet.
-    if (
-        stage_state.value.current_step >= Marker.wwt_wait
-        and not class_data_loaded.value
-    ):
+    if stage_state.value.current_step > Marker.wwt_wait and not class_data_loaded.value:
         load_class_data()
 
     @solara.lab.computed

@@ -23,6 +23,7 @@ def _load_state(
     local_state.set(local_state.value.__class__())
 
     logger.info(f"Student ID: {global_state.value.student.id}")
+    logger.info(f"Class info: {global_state.value.classroom.class_info}")
 
     student_id = Ref(global_state.fields.student.id)
 
@@ -78,17 +79,27 @@ def Layout(
 ):
     BaseSetup(remote_api=LOCAL_API, global_state=global_state, local_state=local_state)
 
-    # Load stored state from the server
-    solara.use_memo(lambda: _load_state(global_state, local_state), dependencies=[])
+    initial_state_loaded = solara.use_reactive(False)
 
-    initial_load_completed = solara.use_reactive(False)
+    # Load stored state from the server
+    def _state_setup():
+        _load_state(global_state, local_state)
+        initial_state_loaded.set(True)
+
+    solara.use_memo(_state_setup, dependencies=[])
+
+    initial_state_written = solara.use_reactive(False)
 
     def _consume_write_state():
         while True:
-            if not initial_load_completed.value:
+            if not initial_state_loaded.value:
+                time.sleep(1)
+                continue
+
+            if not initial_state_written.value:
                 logger.info(f"Initializing with full DB write.")
                 _write_state(global_state.value.as_dict(), global_state, local_state)
-                initial_load_completed.set(True)
+                initial_state_written.set(True)
                 continue
 
             # Retrieve current state
