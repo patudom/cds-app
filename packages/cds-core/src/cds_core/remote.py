@@ -17,10 +17,7 @@ logger = setup_logger("API")
 
 
 class BaseAPI:
-    # API_URL = "https://api.cosmicds.cfa.harvard.edu"
-    API_URL = "http://localhost:8081"
-
-    initial_load_completed = False
+    API_URL = "https://api.cosmicds.cfa.harvard.edu"
 
     @cached_property
     def request_session(self):
@@ -215,15 +212,11 @@ class BaseAPI:
                 .get("state", None)
             )
 
-            logger.info("Story JSON")
-            logger.info(json.dumps(story_json))
-
             if story_json is None:
                 logger.error(
                     f"Failed to retrieve state for story {local_state.value.story_id} "
                     f"for user {global_state.value.student.id}."
                 )
-                self.initial_load_completed = True
                 return None
 
         else:
@@ -243,7 +236,7 @@ class BaseAPI:
         # global_state_json["story_state"] = local_state_json
 
         if global_state_json:
-            global_state_json["student"] = { "id": student_id }
+            global_state_json["student"] = {"id": student_id}
             global_state.set(global_state.value.__class__(**global_state_json))
 
         local_state_json = global_state_json.get("story_state", {})
@@ -251,11 +244,6 @@ class BaseAPI:
             local_state.set(local_state.value.__class__(**local_state_json))
 
         logger.info("Updated state from database.")
-
-        logger.info(global_state.value)
-        logger.info(local_state.value)
-
-        self.initial_load_completed = True
 
         return local_state.value
 
@@ -267,7 +255,10 @@ class BaseAPI:
         raise NotImplementedError()
 
     def patch_story_state(
-        self, patch: dict, global_state: Reactive[BaseAppState], local_state: Reactive[BaseStoryState]
+        self,
+        patch: dict,
+        global_state: Reactive[BaseAppState],
+        local_state: Reactive[BaseStoryState],
     ):
         if not global_state.value.update_db or self.is_educator:
             logger.info("Skipping DB write")
@@ -280,8 +271,7 @@ class BaseAPI:
         }
 
         state_json = json.dumps(state, cls=CDSJSONEncoder)
-        logger.info("Payload for patch request")
-        logger.info(state_json)
+
         r = self.request_session.patch(
             f"{self.API_URL}/story-state/{global_state.value.student.id}/{local_state.value.story_id}",
             headers={"Content-Type": "application/json"},
