@@ -40,9 +40,6 @@ def _load_state(
     # Retrieve the student's app and local states
     LOCAL_API.get_app_story_states(global_state, local_state)
 
-    logger.info(local_state.value)
-    logger.info(f"Student ID after load: {global_state.value.student.id}")
-
     # Load in the student's measurements
     measurements = LOCAL_API.get_measurements(global_state, local_state)
     sample_measurements = LOCAL_API.get_sample_measurements(global_state, local_state)
@@ -52,7 +49,9 @@ def _load_state(
     Ref(local_state.fields.measurements_loaded).set(True)
 
 
-def _write_state(patch: dict, global_state: Reactive[AppState], local_state: Reactive[StoryState]):
+def _write_state(
+    patch: dict, global_state: Reactive[AppState], local_state: Reactive[StoryState]
+):
     # Listen for changes in the states and write them to the database
     patch_state = LOCAL_API.patch_story_state(patch, global_state, local_state)
 
@@ -82,8 +81,16 @@ def Layout(
     # Load stored state from the server
     solara.use_memo(lambda: _load_state(global_state, local_state), dependencies=[])
 
+    initial_load_completed = solara.use_reactive(False)
+
     def _consume_write_state():
         while True:
+            if not initial_load_completed.value:
+                logger.info(f"Initializing with full DB write.")
+                _write_state(global_state.value.as_dict(), global_state, local_state)
+                initial_load_completed.set(True)
+                continue
+
             # Retrieve current state
             old_state = global_state.value.as_dict()
 
