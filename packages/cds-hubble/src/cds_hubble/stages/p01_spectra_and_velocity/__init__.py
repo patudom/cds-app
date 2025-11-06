@@ -177,7 +177,6 @@ def Page(app_state: Reactive[AppState]):
         )
 
     def _init_glue_data_setup():
-        logger.info("The glue data use effect")
         if Ref(story_state.fields.measurements_loaded).value:
             add_or_update_example_measurements_to_glue()
             initialize_second_example_measurement(story_state)

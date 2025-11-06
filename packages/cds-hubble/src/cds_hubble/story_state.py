@@ -106,6 +106,7 @@ class ClassSummary(BaseSummary):
 class StoryState(BaseStoryState):
     title: str = "Hubble's Law"
     story_id: str = "hubbles_law"
+    type: str = "hubbles_law"
     measurements: list[StudentMeasurement] = []
     example_measurements: list[StudentMeasurement] = []
     class_measurements: list[StudentMeasurement] = []
@@ -131,17 +132,19 @@ class StoryState(BaseStoryState):
     free_responses: dict[str, dict] = {"responses": {}}
 
     def as_dict(self):
-        return self.model_dump(
-            exclude={
-                "example_measurements",
-                "measurements",
-                "measurements_loaded",
-                "class_measurements",
-                "all_measurements",
-                "student_summaries",
-                "class_summaries",
-            }
-        )
+        return self.model_dump(exclude=self.excluded_fields)
+
+    @property
+    def excluded_fields(self):
+        return {
+            "example_measurements",
+            "measurements",
+            "measurements_loaded",
+            "class_measurements",
+            "all_measurements",
+            "student_summaries",
+            "class_summaries",
+        }
 
     def get_measurement(self, galaxy_id: int) -> StudentMeasurement | None:
         return next((x for x in self.measurements if x.galaxy_id == galaxy_id), None)

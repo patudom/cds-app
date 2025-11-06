@@ -21,6 +21,7 @@ from .utils import get_session_id
 from .components.breakpoint_watcher.breakpoint_watcher import BreakpointWatcher
 from .components.location_helper.location_helper import LocationHelper
 from .components.theme_toggle import ThemeToggle
+from .components.logout_dialog.logout_dialog import LogoutDialog
 from .base_states import BaseStoryState, BaseAppState
 from .remote import BaseAPI
 
@@ -29,7 +30,7 @@ filterwarnings(action="ignore", category=UserWarning)
 if "AWS_EBS_URL" in os.environ:
     settings.main.base_url = os.environ["AWS_EBS_URL"]
 
-logger = setup_logger("LAYOUT")
+logger = setup_logger("CORE LAYOUT")
 
 
 def BaseSetup(
@@ -126,7 +127,15 @@ def BaseSetup(
             )
             LocationHelper(url=root_url)
 
+        logger.info("Initial setup finished.")
+
     solara.use_memo(_initial_setup, dependencies=[])
+
+    # Check if user is logged out, show dialog if true
+    logout_dialog = LogoutDialog(
+        dialog=auth.user.value is None,
+        return_url=settings.main.base_url.replace(router.root_path, ""),
+    )
 
 
 def BaseLayout(

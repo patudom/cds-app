@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 from functools import cached_property
 
@@ -7,8 +8,10 @@ from solara import Reactive
 from solara.lab import Ref
 from solara_enterprise import auth
 
-from .base_states import BaseAppState, BaseStoryState, BaseStageState, BaseState
+from cds_core.app_state import Student
+from .base_states import BaseAppState, BaseStoryState, BaseStageState
 from .logger import setup_logger
+from .utils import CDSJSONEncoder
 
 logger = setup_logger("API")
 
@@ -233,7 +236,7 @@ class BaseAPI:
         # global_state_json["story_state"] = local_state_json
 
         if global_state_json:
-            global_state_json["student"] = { "id": student_id }
+            global_state_json["student"] = {"id": student_id}
             global_state.set(global_state.value.__class__(**global_state_json))
 
         local_state_json = global_state_json.get("story_state", {})
@@ -250,6 +253,37 @@ class BaseAPI:
         local_state: Reactive[BaseStoryState],
     ):
         raise NotImplementedError()
+
+    def patch_story_state(
+        self,
+        patch: dict,
+        global_state: Reactive[BaseAppState],
+        local_state: Reactive[BaseStoryState],
+    ):
+        if not global_state.value.update_db or self.is_educator:
+            logger.info("Skipping DB write")
+            return False
+
+        logger.info("Serializing state into DB.")
+
+        state = {
+            "app": patch,
+        }
+
+        state_json = json.dumps(state, cls=CDSJSONEncoder)
+
+        r = self.request_session.patch(
+            f"{self.API_URL}/story-state/{global_state.value.student.id}/{local_state.value.story_id}",
+            headers={"Content-Type": "application/json"},
+            data=state_json,
+        )
+
+        if r.status_code != 200:
+            logger.error("Failed to write story state to database.")
+            logger.error(r.text)
+            return False
+
+        return True
 
     @staticmethod
     def clear_user(state: Reactive[BaseAppState]):
