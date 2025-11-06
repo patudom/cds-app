@@ -4,6 +4,7 @@ import solara
 from deepdiff import DeepDiff
 from solara import Reactive
 from solara.lab import Ref
+from solara_enterprise import auth
 
 from cds_core.app_state import AppState
 from cds_core.layout import BaseLayout, BaseSetup
@@ -167,7 +168,7 @@ def Layout(
     # The rendering takes a moment while the route resolves, this can appear as
     #  a flicker before the true page loads. Here, we hide the page until the
     #  route is restored.
-    if route_restored.value:
+    if auth.user.value is not None and route_restored.value:
         BaseLayout(
             remote_api=LOCAL_API,
             global_state=global_state,
