@@ -178,7 +178,7 @@ class Roster():
 
     def get_class_data(self, refresh: bool = False, df: bool = False) -> Union[Dict, pd.DataFrame]:
         if self.data is None or self._refresh or refresh:
-            res = self.query.get_class_data(class_id=self.class_id)
+            res = self.adapter.get_class_measurements(self.roster)
             if res is None or res == {} or len(res) == 0:
                 res = {'student_id': []}
             self.data = res if res is not None else {'student_id': []}
@@ -192,7 +192,7 @@ class Roster():
 
     def get_student_data(self, student_id, refresh=False, df=False):
         if (student_id not in self.student_data.keys()) or self._refresh or refresh:
-            self.student_data[student_id] = self.query.get_student_data(student_id)['measurements']  # type: ignore
+            self.student_data[student_id] = self.adapter.get_student_measurements(self.roster, student_id)  # type: ignore
         if df:
             return pd.DataFrame(self.student_data[student_id])
         return self.student_data[student_id]

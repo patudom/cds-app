@@ -22,6 +22,8 @@ class StateAdapter(Protocol):
     query: QueryCosmicDSApi
    
     def transform_roster(self, api_roster: List[Any]) -> List[OldRosterEntry]: ...
+    def get_class_measurements(self, roster: List[OldRosterEntry]) -> Dict[str, List[Any]]: ...
+    def get_student_measurements(self, roster: List[OldRosterEntry], student_id: int) -> List[Dict[str, Any]]: ...
     @property
     def version_name(self) -> str: ...
     @property
@@ -41,6 +43,20 @@ class LegacyStateAdapter(StateAdapter):
         """
         result = cast(List[OldRosterEntry], api_roster)
         return result
+    
+    def get_class_measurements(self, roster: List[OldRosterEntry]) -> Dict[str, List[Any]]:
+        """Get all measurements for the class. Uses API call for legacy format."""
+
+        res = self.query.get_class_data(class_id=self.query.class_id)
+        if res is None or res == {} or len(res) == 0:
+            res = {'student_id': []}
+        return res if res is not None else {'student_id': []}
+    
+    def get_student_measurements(self, roster: List[OldRosterEntry], student_id: int) -> List[Dict[str, Any]]:
+        """Get measurements for a specific student. Uses API call for legacy format."""
+
+        result = self.query.get_student_data(student_id)
+        return result.get('measurements', []) if result else []
     
     @property
     def version_name(self) -> str:
@@ -138,6 +154,20 @@ class OldSolaraStateAdapter(StateAdapter):
                 logger.error(f"OldSolaraStateAdapter: Failed to fetch stages for student {student_id}: {e}")
                 entry['story_state']['stages'] = {}  # type: ignore
     
+    def get_class_measurements(self, roster: List[OldRosterEntry]) -> Dict[str, List[Any]]:
+        """Get all measurements for the class. Uses API call for Solara format."""
+
+        res = self.query.get_class_data(class_id=self.query.class_id)
+        if res is None or res == {} or len(res) == 0:
+            res = {'student_id': []}
+        return res if res is not None else {'student_id': []}
+    
+    def get_student_measurements(self, roster: List[OldRosterEntry], student_id: int) -> List[Dict[str, Any]]:
+        """Get measurements for a specific student. Uses API call for Solara format."""
+
+        result = self.query.get_student_data(student_id)
+        return result.get('measurements', []) if result else []
+    
     @property
     def version_name(self) -> str:
         return "solara"
@@ -165,7 +195,6 @@ class MonorepoStateAdapter(StateAdapter):
         for student in api_roster:
             transformed = self._transform_student_entry(student)
             result.append(transformed)
-            break
         
         return result
     
@@ -174,7 +203,6 @@ class MonorepoStateAdapter(StateAdapter):
         total_steps = stage['total_steps']
         progress = (max_step - 1) / total_steps
         stage['progress'] = progress
-        logger.info(f'{stage['stage_id']}: max: {max_step}. total: {total_steps}. progress: {progress: 0.3f}')
         return progress
     
     
@@ -191,7 +219,6 @@ class MonorepoStateAdapter(StateAdapter):
         for key, value in stage_states.items():
             stage_states[key]['index'] = int(stage_map[key])
             stage_states[key]['progress'] = self.fix_progress(value)
-            logger.debug(f"Progess is {stage_states[key]['progress']} for {key}")
             stage_states[key]['state'] = value
         return stage_states
 
@@ -215,18 +242,67 @@ class MonorepoStateAdapter(StateAdapter):
     
     def _transform_student_entry(self, student):
         # already has top level student id
+        student_id = student.get('student_id', 'unknown')
+        last_modified = student.get('last_modified')  # Capture before transformation
+        
         app = student.pop('story_state').pop('app')
-        logger.debug(f'app: {app.keys()}')
         story_state = app.pop('story_state')
-        logger.debug(f'story_state: {story_state.keys()}')
+        
+        # Check if measurements exist and inject last_modified
+        measurements = story_state.get('measurements', None)
+        if measurements is not None and last_modified is not None:
+            # Inject last_modified into each measurement
+            for measurement in measurements:
+                if isinstance(measurement, dict):
+                    measurement['last_modified'] = last_modified
+        
         stage_states = self.fix_stages(story_state.pop('stage_states'))
-        logger.debug(stage_states)
         student['app_state'] = app
         student['story_state'] = story_state
         student['story_state']['mc_scoring'] = self.get_multiple_choice(stage_states)
         student['story_state']['responses'] = self.get_free_responses(stage_states)
         student['story_state']['stages'] = stage_states
-        return student        
+        
+        return student
+    
+    def get_class_measurements(self, roster: List[OldRosterEntry]) -> Dict[str, List[Any]]:
+        """
+        Get all measurements for the class from the roster.
+        For monorepo, measurements are already in the roster data.
+        """
+        result: Dict[str, List[Any]] = {}
+        
+        for idx, student in enumerate(roster):
+            student_id = student['student_id']
+            measurements = student.get('story_state', {}).get('measurements', [])
+            
+            # Add each measurement to the result dict
+            for measurement in measurements:
+                if measurement is None:
+                    continue  # Skip None measurements
+                if not isinstance(measurement, dict):
+                    logger.warning(f"Student {student_id}: Skipping non-dict measurement: {type(measurement)}")
+                    continue
+                for key, value in measurement.items():
+                    if key not in result:
+                        result[key] = []
+                    result[key].append(value)
+        
+        if len(result) == 0:
+            result = {'student_id': []}
+        
+        return result
+    
+    def get_student_measurements(self, roster: List[OldRosterEntry], student_id: int) -> List[Dict[str, Any]]:
+        """
+        Get measurements for a specific student from the roster.
+        For monorepo, measurements are already in the roster data.
+        """
+        for student in roster:
+            if student['student_id'] == student_id:
+                return student.get('story_state', {}).get('measurements', [])
+        
+        return []
     
     @property
     def version_name(self) -> str:
@@ -234,7 +310,7 @@ class MonorepoStateAdapter(StateAdapter):
     
     @property
     def state_class(self) -> type:
-        return MonoRepoState  # Likely uses NewState (database has progress)
+        return NewState  # Likely uses NewState (database has progress)
 
 
 class StateAdapterFactory(StateAdapter):
@@ -269,6 +345,18 @@ class StateAdapterFactory(StateAdapter):
     def transform_roster(self, api_roster: List[Any]) -> List[OldRosterEntry]:
         self._adapter = self.get_adapter(api_roster, self.class_id)
         return self._adapter.transform_roster(api_roster)
+    
+    def get_class_measurements(self, roster: List[OldRosterEntry]) -> Dict[str, List[Any]]:
+        """Delegate to the underlying adapter."""
+        if self._adapter is None:
+            raise ValueError("Adapter not initialized. Call transform_roster first.")
+        return self._adapter.get_class_measurements(roster)
+    
+    def get_student_measurements(self, roster: List[OldRosterEntry], student_id: int) -> List[Dict[str, Any]]:
+        """Delegate to the underlying adapter."""
+        if self._adapter is None:
+            raise ValueError("Adapter not initialized. Call transform_roster first.")
+        return self._adapter.get_student_measurements(roster, student_id)
     
     
         
