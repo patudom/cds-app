@@ -8,7 +8,10 @@ from .logger_setup import logger
 # Import State classes
 from .database.State import State
 from .database_new.NewState import State as NewState
-from .database_new.NewState import MonoRepoState
+import json
+def log_to_json(thing):
+    with open('temp.json', 'w') as f:
+        f.write(json.dumps(thing))
 
 
 # Each database version has its own adapter that knows how to transform the
@@ -213,8 +216,11 @@ class MonorepoStateAdapter(StateAdapter):
     def _transform_student_entry(self, student):
         # already has top level student id
         app = student.pop('story_state').pop('app')
+        logger.debug(f'app: {app.keys()}')
         story_state = app.pop('story_state')
+        logger.debug(f'story_state: {story_state.keys()}')
         stage_states = self.fix_stages(story_state.pop('stage_states'))
+        logger.debug(stage_states)
         student['app_state'] = app
         student['story_state'] = story_state
         student['story_state']['mc_scoring'] = self.get_multiple_choice(stage_states)
