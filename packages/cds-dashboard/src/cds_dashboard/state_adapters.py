@@ -8,6 +8,7 @@ from .logger_setup import logger
 # Import State classes
 from .database.State import State
 from .database_new.NewState import State as NewState
+from .database_new.NewState import MonoRepoState as MonoRepoState
 import json
 def log_to_json(thing):
     with open('temp.json', 'w') as f:
@@ -310,7 +311,7 @@ class MonorepoStateAdapter(StateAdapter):
     
     @property
     def state_class(self) -> type:
-        return NewState  # Likely uses NewState (database has progress)
+        return MonoRepoState  # Likely uses NewState (database has progress)
 
 
 class StateAdapterFactory(StateAdapter):
