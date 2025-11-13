@@ -236,7 +236,14 @@ class MonorepoStateAdapter(StateAdapter):
     def get_free_responses(self, stage_states: Dict):
         free_responses_dict = {}
         for key, value in stage_states.items():
-            free_responses_dict[str(value['index'])] = value.pop('free_responses')
+            stage_free_responses = value.pop('free_responses')
+            # Extract just the 'response' text from each question
+            # Similar to OldSolaraStateAdapter transformation
+            responses = {
+                q_key: q_value.get('response', '') if isinstance(q_value, dict) else q_value
+                for q_key, q_value in stage_free_responses.items()
+            }
+            free_responses_dict[str(value['index'])] = responses
         return free_responses_dict
         
         
