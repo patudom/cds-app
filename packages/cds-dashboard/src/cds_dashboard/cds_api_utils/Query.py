@@ -130,6 +130,7 @@ class QueryCosmicDSApi():
         if (story is not None) and (story != ''):
             endpoint += f'/{story}'
         url = urljoin(self.url_head, endpoint)
+        print(url)
         self.roster_url = url
         req = self.get(url)
         return req.json()

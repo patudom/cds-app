@@ -5,7 +5,7 @@ from typing import Optional
 from ..class_report import Roster
 from solara.reactive import Reactive
 
-from ..database.Query import QueryCosmicDSApi as Query
+from ..cds_api_utils.Query import QueryCosmicDSApi as Query
 
 from ..logger_setup import logger
 

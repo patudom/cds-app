@@ -1,6 +1,6 @@
 
 import solara
-from ..database.Query import QueryCosmicDSApi
+from ..cds_api_utils.Query import QueryCosmicDSApi
 from ..educator_dashboard import EducatorDashboard
 from ..components.TeacherCodeInput import class_query_res
 

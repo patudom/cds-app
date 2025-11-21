@@ -2,21 +2,20 @@ import warnings
 warnings.filterwarnings('ignore') # ignore warnings
 from .markers import markers
 from numpy import nan, isnan
-from typing import Dict, List, Optional, Union, Any, cast
+from typing import Dict, Optional, Union, Any, cast
 
 from .old_types import (
     StageState, 
     MCScore as ProcessedMCScore, 
     ClassInfo, 
-    StudentInfo, 
     OldStudentStoryState, 
-    StateInterface
+    StateInterface,
 )
 
 from ..logger_setup import logger
 
 # 
-class State:
+class State(StateInterface):
     markers = markers
     
     def __init__(self, story_state: OldStudentStoryState) -> None:
@@ -29,7 +28,7 @@ class State:
         self.classroom: ClassInfo = cast(ClassInfo, story_state.get('classroom',{k:None for k in class_room_keys}))# dict_keys(['id', 'code', 'name', 'active', 'created', 'updated', 'educator_id', 'asynchronous'])
         self.responses: Dict[str, Dict[str, str]] = story_state.get('responses',{})
         self.mc_scoring: Dict[str, Dict[str, ProcessedMCScore]] = story_state.get('mc_scoring',{}) # dict_keys(['1', '3', '4', '5', '6'])
-        self.stage_index = story_state.get('stage_index',nan) # int
+        self._stage_index = story_state.get('stage_index',nan) # int
         self.total_score = story_state.get('total_score',nan) #int
         self.student_user: Dict[str, Any] = story_state.get('student_user',{}) # dict_keys(['id', 'ip', 'age', 'lat', 'lon', 'seed', 'dummy', 'email', 'gender', 'visits', 'password', 'username', 'verified', 'last_visit', 'institution', 'team_member', 'last_visit_ip', 'profile_created', 'verification_code'])
         self.teacher_user = story_state.get('teacher_user',None) # None
@@ -70,6 +69,12 @@ class State:
         # 
         d = {v:k for k, v in self.stage_map.items()}
         return d.get(name, None)
+    
+    @property
+    def stage_index(self) -> Union[int, float]:
+        if isnan(self._stage_index):
+            return self.max_stage_index + 1
+        return self._stage_index
     
     @property
     def how_far(self) -> Dict[str, Union[str, float]]:
