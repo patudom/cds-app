@@ -750,8 +750,11 @@ def Page(app_state: Reactive[AppState]):
                     default_color=student_default_color,
                     highlight_color=student_highlight_color,
                 )
-                if story_state.value.show_team_interface:
-                    rv.Chip(children=[rv.Text(children=[f"Student ID {selected_student_id.value}"])])
+                if app_state.value.show_team_interface:
+                    rv.Chip(
+                        children=[rv.Text(children=[f"Student ID {selected_student_id.value}"])],
+                        style_="margin-top: 25px",
+                    )
 
         if stage_state.value.current_step_between(Marker.lea_unc1, Marker.you_age1c):
             with solara.ColumnsResponsive(12, large=[5, 7]):
@@ -870,8 +873,11 @@ def Page(app_state: Reactive[AppState]):
                     default_color=class_default_color,
                     highlight_color=class_highlight_color,
                 )
-                if story_state.value.show_team_interface:
-                    rv.Chip(children=[rv.Text(children=[f"Class ID {selected_class_id.value}"])])
+                if app_state.value.show_team_interface:
+                    rv.Chip(
+                        children=[rv.Text(children=[f"Class ID {selected_class_id.value}"])],
+                        style_="margin-top: 25px",
+                    )
 
                 with rv.Col(cols=10, offset=1):
                     UncertaintySlideshow(
