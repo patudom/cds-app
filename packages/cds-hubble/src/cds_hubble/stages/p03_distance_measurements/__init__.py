@@ -44,6 +44,7 @@ from ...helpers.viewer_marker_colors import (
 from ...remote import LOCAL_API
 from ...story_state import (
     StoryState,
+    StudentMeasurement,
     mc_callback,
 )
 from ...utils import (
@@ -356,7 +357,6 @@ def Page(app_state: Reactive[AppState]):
         update_example: bool,
         galaxy,
         angular_size,
-        count,
         meas_num="first",
         brightness=1.0,
     ):
@@ -390,11 +390,11 @@ def Page(app_state: Reactive[AppState]):
                 )
                 measurements[index] = measurement
                 Ref(story_state.fields.measurements).set(measurements)
-                count.set(count.value + 1)
             else:
                 raise ValueError(
                     f"Could not find measurement for galaxy {galaxy['id']}"
                 )
+        _set_ang_size_total(example=update_example)
 
     @computed
     def use_second_measurement():
@@ -575,23 +575,30 @@ def Page(app_state: Reactive[AppState]):
                     else story_state.value.measurements
                 )
 
+            def _set_ang_size_total(example: bool):
+                total = (
+                    Ref(stage_state.fields.example_angular_sizes_total)
+                    if on_example_galaxy_marker.value
+                    else Ref(stage_state.fields.angular_sizes_total)
+                )
+                measurements = story_state.value.example_measurements if example else story_state.value.measurements
+                num = 0
+                for meas in measurements:
+                    if meas.ang_size_value is not None:
+                        num += 1
+                total.set(num)
+
             def _ang_size_cb(angle):
                 """
                 Callback for when the angular size is measured. This function
                 updates the angular size of the galaxy in the data model and
                 puts the measurements in the database.
                 """
-                data = current_data.value
-                count = (
-                    Ref(stage_state.fields.example_angular_sizes_total)
-                    if on_example_galaxy_marker.value
-                    else Ref(stage_state.fields.angular_sizes_total)
-                )
+   
                 _update_angular_size(
                     on_example_galaxy_marker.value,
                     current_galaxy.value,
                     angle,
-                    count,
                     example_galaxy_measurement_number.value,
                     brightness=current_brightness.value,
                 )
