@@ -66,6 +66,6 @@ routes = [
     solara.Route(
         path="prodata",
         component=solara.component(lambda: ProDataPage(**{"app_state": APP_STATE})),
-        label="ProData",
+        label="Professional Data",
     ),
 ]
