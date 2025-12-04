@@ -7,7 +7,7 @@ from typing import cast
 
 from cds_core.logger import setup_logger
 from cds_core.app_state import AppState
-from .stage_state import Marker, StageState
+from .stage_state import StageState
 from ...components import IntroSlideshowVue
 from ...story_state import StoryState
 from ...utils import get_image_path, push_to_route
@@ -26,11 +26,11 @@ def Page(app_state: Reactive[AppState]):
     def _get_exploration_tool():
         return ExplorationTool()
 
-    exploration_tool = solara.use_memo(_get_exploration_tool, dependencies=[])
+    exploration_tools = [solara.use_memo(_get_exploration_tool, dependencies=[]) for _ in range(3)]
 
     def go_to_location(options):
         index = options.get("index", 0)
-        tool = exploration_tool  # exploration_tools[index]
+        tool = exploration_tools[index]
         fov_as = options.get("fov", 216000)
         fov = fov_as * u.arcsec
         ra = options.get("ra")
@@ -64,9 +64,9 @@ def Page(app_state: Reactive[AppState]):
             router, location, "spectra-and-velocity"
         ),
         debug=story_state.value.debug_mode,
-        exploration_tool=exploration_tool,
-        exploration_tool1=exploration_tool,
-        exploration_tool2=exploration_tool,
+        exploration_tool=exploration_tools[0],
+        exploration_tool1=exploration_tools[1],
+        exploration_tool2=exploration_tools[2],
         event_go_to_location=go_to_location,
         speech=speech.value.model_dump(),
         show_team_interface=app_state.value.show_team_interface,
