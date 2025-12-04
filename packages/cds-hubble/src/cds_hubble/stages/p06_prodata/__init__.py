@@ -35,6 +35,8 @@ from ...story_state import (
     StoryState,
     mc_callback,
     fr_callback,
+    get_mc_response,
+    get_free_response,
 )
 from ...utils import (
     HST_KEY_AGE,
@@ -73,25 +75,6 @@ def Page(app_state: Reactive[AppState]):
     def linear_slope(x, y):
         # returns the slope, m,  of y(x) = m*x
         return sum(x * y) / sum(x * x)
-
-    def _on_component_state_loaded(value: bool):
-        if not value:
-            return
-
-        class_age = Ref(stage_state.fields.class_age)
-
-        data = gjapp.data_collection["Class Data"]
-        vel = data["velocity_value"]
-        dist = data["est_dist_value"]
-        # only accept rows where both velocity and distance exist
-        indices = where(
-            (vel != 0) & (vel is not None) & (dist != 0) & (dist is not None)
-        )
-        if indices[0].size > 0:
-            slope = linear_slope(dist[indices], vel[indices])
-            class_age.set(round(AGE_CONSTANT / slope, 8))
-
-    solara.use_memo(_on_component_state_loaded, dependencies=[])
 
     def _glue_setup() -> Tuple[JupyterApplication, HubbleFitView]:
         # NOTE: use_memo has to be part of the main page render. Including it
@@ -172,7 +155,23 @@ def Page(app_state: Reactive[AppState]):
 
         return gjapp, viewer
 
-    gjapp, viewer = solara.use_memo(_glue_setup)
+    gjapp, viewer = solara.use_memo(_glue_setup, dependencies=[])
+
+    def _on_component_state_loaded():
+        class_age = Ref(stage_state.fields.class_age)
+
+        data = gjapp.data_collection["Class Data"]
+        vel = data["velocity_value"]
+        dist = data["est_dist_value"]
+        # only accept rows where both velocity and distance exist
+        indices = where(
+            (vel != 0) & (vel is not None) & (dist != 0) & (dist is not None)
+        )
+        if indices[0].size > 0:
+            slope = linear_slope(dist[indices], vel[indices])
+            class_age.set(round(AGE_CONSTANT / slope, 8))
+
+    solara.use_memo(_on_component_state_loaded, dependencies=[])
 
     def show_fit_line(show=True):
         tool = viewer.toolbar.tools["hubble:linefit"]
@@ -290,7 +289,7 @@ def Page(app_state: Reactive[AppState]):
             ScaffoldAlert(
                 GUIDELINE_ROOT / "GuidelineProfessionalData0.vue",
                 event_back_callback=lambda _: push_to_route(
-                    router, location, "class-results-uncertainty"
+                    router, location, "class-results"
                 ),
                 event_next_callback=lambda _: transition_next(stage_state),
                 can_advance=stage_state.value.can_transition(next=True),
@@ -306,10 +305,7 @@ def Page(app_state: Reactive[AppState]):
                     event, story_state, stage_state
                 ),
                 state_view={
-                    "mc_score": stage_state.value.multiple_choice_responses.get(
-                        "pro-dat1",
-                        MultipleChoiceResponse(tag="pro-dat1"),
-                    ).model_dump(),
+                    "mc_score": get_mc_response("pro-dat1", stage_state),
                     "score_tag": "pro-dat1",
                     "class_color": MY_CLASS_COLOR_NAME,
                     "hubble1929_color": HUBBLE_1929_COLOR_NAME,
@@ -325,10 +321,7 @@ def Page(app_state: Reactive[AppState]):
                     event, story_state, stage_state
                 ),
                 state_view={
-                    "mc_score": stage_state.value.multiple_choice_responses.get(
-                        "pro-dat2",
-                        MultipleChoiceResponse(tag="pro-dat2"),
-                    ).model_dump(),
+                    "mc_score": get_mc_response("pro-dat2", stage_state),
                     "score_tag": "pro-dat2",
                 },
             )
@@ -354,18 +347,11 @@ def Page(app_state: Reactive[AppState]):
                     event,
                     story_state,
                     stage_state,
-                    lambda: LOCAL_API.put_story_state(app_state, story_state),
                 ),
                 state_view={
-                    "mc_score": stage_state.value.multiple_choice_responses.get(
-                        "pro-dat4",
-                        MultipleChoiceResponse(tag="pro-dat4"),
-                    ).model_dump(),
+                    "mc_score": get_mc_response("pro-dat4", stage_state),
                     "score_tag": "pro-dat4",
-                    "free_response": stage_state.value.free_responses.get(
-                        "prodata-free-4",
-                        FreeResponse(tag="prodata-free-4"),
-                    ).model_dump(),
+                    "free_response": get_free_response("prodata-free-4", stage_state),
                     "mc_completed": stage_state.value.has_response("pro-dat4"),
                 },
             )
@@ -391,10 +377,7 @@ def Page(app_state: Reactive[AppState]):
                     "class_age": stage_state.value.class_age,
                     "ages_within": stage_state.value.ages_within,
                     "allow_too_close_correct": stage_state.value.allow_too_close_correct,
-                    "mc_score": stage_state.value.multiple_choice_responses.get(
-                        "pro-dat6",
-                        MultipleChoiceResponse(tag="pro-dat6"),
-                    ).model_dump(),
+                    "mc_score": get_mc_response("pro-dat6", stage_state),
                     "score_tag": "pro-dat6",
                 },
             )
@@ -411,18 +394,11 @@ def Page(app_state: Reactive[AppState]):
                     event,
                     story_state,
                     stage_state,
-                    lambda: LOCAL_API.put_story_state(app_state, story_state),
                 ),
                 state_view={
-                    "mc_score": stage_state.value.multiple_choice_responses.get(
-                        "pro-dat7",
-                        MultipleChoiceResponse(tag="pro-dat7"),
-                    ).model_dump(),
+                    "mc_score": get_mc_response("pro-dat7", stage_state),
                     "score_tag": "pro-dat7",
-                    "free_response": stage_state.value.free_responses.get(
-                        "prodata-free-7",
-                        FreeResponse(tag="prodata-free-7"),
-                    ).model_dump(),
+                    "free_response": get_free_response("prodata-free-7", stage_state),
                     "mc_completed": stage_state.value.has_response("pro-dat7"),
                 },
             )
@@ -436,21 +412,17 @@ def Page(app_state: Reactive[AppState]):
                     event,
                     story_state,
                     stage_state,
-                    lambda: LOCAL_API.put_story_state(app_state, story_state),
                 ),
                 state_view={
-                    "free_response_a": stage_state.value.free_responses.get(
-                        "prodata-reflect-8a",
-                        FreeResponse(tag="prodata-reflect-8a"),
-                    ).model_dump(),
-                    "free_response_b": stage_state.value.free_responses.get(
-                        "prodata-reflect-8b",
-                        FreeResponse(tag="prodata-reflect-8b"),
-                    ).model_dump(),
-                    "free_response_c": stage_state.value.free_responses.get(
-                        "prodata-reflect-8c",
-                        FreeResponse(tag="prodata-reflect-8c"),
-                    ).model_dump(),
+                    "free_response_a": get_free_response(
+                        "prodata-reflect-8a", stage_state
+                    ),
+                    "free_response_b": get_free_response(
+                        "prodata-reflect-8b", stage_state
+                    ),
+                    "free_response_c": get_free_response(
+                        "prodata-reflect-8c", stage_state
+                    ),
                 },
             )
             ScaffoldAlert(
@@ -463,10 +435,7 @@ def Page(app_state: Reactive[AppState]):
                     event, story_state, stage_state
                 ),
                 state_view={
-                    "mc_score": stage_state.value.multiple_choice_responses.get(
-                        "pro-dat9",
-                        MultipleChoiceResponse(tag="pro-dat9"),
-                    ).model_dump(),
+                    "mc_score": get_mc_response("pro-dat9", stage_state),
                     "score_tag": "pro-dat9",
                 },
             )

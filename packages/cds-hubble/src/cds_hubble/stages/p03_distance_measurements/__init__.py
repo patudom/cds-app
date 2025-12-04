@@ -46,6 +46,7 @@ from ...story_state import (
     StoryState,
     StudentMeasurement,
     mc_callback,
+    get_mc_response,
 )
 from ...utils import (
     DISTANCE_CONSTANT,
@@ -140,6 +141,7 @@ def DistanceToolComponent(
         widget = cast(DistanceTool, solara.get_widget(tool))
 
         def update_angular_size(change):
+            print(f"update_angular_size: {change['new']}")
             if widget.measuring:
                 angle = change["new"]
                 if not widget.bad_measurement:
@@ -346,12 +348,6 @@ def Page(app_state: Reactive[AppState]):
                     on_click=_fill_data_points,
                     classes=["demo-button"],
                 )
-
-    def put_measurements(samples):
-        if samples:
-            LOCAL_API.put_sample_measurements(app_state, story_state)
-        else:
-            LOCAL_API.put_measurements(app_state, story_state)
 
     def _update_angular_size(
         update_example: bool,
@@ -602,7 +598,7 @@ def Page(app_state: Reactive[AppState]):
                     example_galaxy_measurement_number.value,
                     brightness=current_brightness.value,
                 )
-                put_measurements(samples=on_example_galaxy_marker.value)
+
                 if on_example_galaxy_marker.value:
                     value = int(angle.to(u.arcsec).value)
                     meas_theta = Ref(stage_state.fields.meas_theta)
@@ -651,7 +647,6 @@ def Page(app_state: Reactive[AppState]):
                     theta,
                     example_galaxy_measurement_number.value,
                 )
-                put_measurements(samples=on_example_galaxy_marker.value)
 
             def _get_ruler_clicks_cb(count):
                 ruler_click_count = Ref(stage_state.fields.ruler_click_count)
@@ -828,7 +823,7 @@ def Page(app_state: Reactive[AppState]):
                                 f"Galaxy {measurement.galaxy_id} has no angular size"
                             )
                     logger.info(f"fill_galaxy_distances: Filled {count} distances")
-                    put_measurements(samples=False)
+
                     distances_total.set(count)
                     fill_galaxy_pressed.set(True)
 
@@ -978,10 +973,7 @@ def Page(app_state: Reactive[AppState]):
                     event, story_state, stage_state
                 ),
                 state_view={
-                    "mc_score": stage_state.value.multiple_choice_responses.get(
-                        "ang_meas_consensus",
-                        MultipleChoiceResponse(tag="ang_meas_consensus"),
-                    ).model_dump(),
+                    "mc_score": get_mc_response("ang_meas_consensus", stage_state),
                     "score_tag": "ang_meas_consensus",
                 },
             )
@@ -1009,10 +1001,7 @@ def Page(app_state: Reactive[AppState]):
                     event, story_state, stage_state
                 ),
                 state_view={
-                    "mc_score": stage_state.value.multiple_choice_responses.get(
-                        "ang_meas_dist_relation",
-                        MultipleChoiceResponse(tag="ang_meas_dist_relation"),
-                    ).model_dump(),
+                    "mc_score": get_mc_response("ang_meas_dist_relation", stage_state),
                     "score_tag": "ang_meas_dist_relation",
                 },
             )
