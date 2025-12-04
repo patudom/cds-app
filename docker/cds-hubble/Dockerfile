@@ -20,4 +20,4 @@ RUN uv pip install packages/cds-hubble --system
 
 EXPOSE 8765
 
-CMD ["uvicorn", "cds_hubble.server:app", "--host=0.0.0.0", "--port=8765"]
+CMD ["uvicorn", "cds_hubble.server:app", "--host=0.0.0.0", "--port=8765", "--workers=2"]
