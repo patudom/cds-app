@@ -364,7 +364,7 @@ export default {
       if (value) {
         if (this.fit_active) {
           const bestFitXs = this.plot_data[this.best_fit_gal_layer_index].x;
-          x_best_fit_galaxy = 0.5 * (Math.min(bestFitXs) + Math.max(bestFitXs));
+          x_best_fit_galaxy = 0.5 * (Math.min(...bestFitXs) + Math.max(...bestFitXs));
           const slopes = this.lastFitSlopes;
           if (slopes.length > 0) {
             const bestfitslope = slopes[this.best_fit_gal_layer_index];
